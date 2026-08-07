@@ -1718,14 +1718,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     container.scrollTo({ top: elAbsBottom - 16, behavior: "smooth" });
   }, []);
 
-  // 当前视口是否贴底：scrollTop 同步更新，读取实时值避免与用户滚动竞争
-  const isStickingToBottom = useCallback(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return true;
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    return distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD_PX;
-  }, []);
-
   // 位置驱动：距底超 UNSTICK 即停跟随，滚回底部附近且冷却已过才恢复；scroll 事件只在实际滚动时派发，不误伤内容增长
   const handleScrollPositionChange = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -1791,15 +1783,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     onBranchDataChange(data?.tree ?? [], activeLeafId, handleLeafChange);
   }, [data?.tree, activeLeafId, handleLeafChange, onBranchDataChange]);
 
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-    container.addEventListener("scroll", handleScrollPositionChange, { passive: true });
-    return () => {
-      container.removeEventListener("scroll", handleScrollPositionChange);
-    };
-  }, [messages.length, loading, handleScrollPositionChange]);
-
   // 用户滚动输入：向上滚同步停止跟随（抢在流式 layout effect 之前），下一帧按位置决定是否恢复
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -1846,7 +1829,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [handleScrollPositionChange, loading]);
 
   // 新消息/回合结束：贴底时跟随；运行中即时贴底，空闲平滑滑到底部
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (messages.length > 0) {
       if (pendingScrollToUserRef.current) {
         pendingScrollToUserRef.current = false;
