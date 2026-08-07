@@ -161,8 +161,6 @@ export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" 
 const RESTORE_STICK_BLOCK_MS = 500;
 // 恢复跟随阈值：距底部在此范围内才算滚回最下面并重新跟随
 const STICK_TO_BOTTOM_THRESHOLD_PX = 24;
-// 停止跟随阈值：距底部超过此值视为用户主动滚离（约6行）
-const UNSTICK_THRESHOLD_PX = 96;
 const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 600;
 const PROMPT_SETTLE_MAX_MS = 20_000;
@@ -403,6 +401,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const pendingScrollToUserRef = useRef(false);
   // 用户是否贴底：贴底则新内容自动跟随，滚离则交还控制，滚回底部自动恢复
   const stickToBottomRef = useRef(true);
+  // 上次已知 scrollTop，渲染时据此区分用户滚动与内容增长
+  const lastScrollTopRef = useRef(0);
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
   // 上滚冷却截止时间，期间位置判断不得恢复跟随
   const restoreStickBlockedUntilRef = useRef(0);
@@ -1718,16 +1718,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     container.scrollTo({ top: elAbsBottom - 16, behavior: "smooth" });
   }, []);
 
-  // 位置驱动：距底超 UNSTICK 即停跟随，滚回底部附近且冷却已过才恢复；scroll 事件只在实际滚动时派发，不误伤内容增长
-  const handleScrollPositionChange = useCallback(() => {
+  // 实时裁决跟随状态：scrollTop 未变视为内容增长，保持现状；变了按实时位置双态判定
+  // 返回是否应跟随，渲染时调用可摆脱 wheel/scroll 事件派发时序
+  const reconcileScrollStick = useCallback(() => {
     const container = scrollContainerRef.current;
-    if (!container) return;
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    if (distanceFromBottom > UNSTICK_THRESHOLD_PX) stickToBottomRef.current = false;
-    else if (
-      distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD_PX
-      && Date.now() >= restoreStickBlockedUntilRef.current
-    ) stickToBottomRef.current = true;
+    if (!container) return false;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    if (scrollTop !== lastScrollTopRef.current) {
+      lastScrollTopRef.current = scrollTop;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      stickToBottomRef.current =
+        distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD_PX && Date.now() >= restoreStickBlockedUntilRef.current;
+    }
+    return stickToBottomRef.current;
   }, []);
 
   // Load session on mount
@@ -1788,7 +1791,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const container = scrollContainerRef.current;
     if (!container) return;
     const onUserScroll = () => {
-      requestAnimationFrame(handleScrollPositionChange);
+      requestAnimationFrame(reconcileScrollStick);
     };
     const onWheel = (e: WheelEvent) => {
       if (e.deltaX === 0 && e.deltaY === 0) return;
@@ -1817,7 +1820,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       onUserScroll();
     };
     // 非滚轮滚动（滚动条拖动/程序化跳转）实时按位置判定，wheel 事件可能被节流或缺失
-    const onScroll = () => handleScrollPositionChange();
+    const onScroll = () => reconcileScrollStick();
     container.addEventListener("wheel", onWheel, { passive: true });
     container.addEventListener("keydown", onKeyDown);
     container.addEventListener("touchstart", onTouchStart, { passive: true });
@@ -1830,7 +1833,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       container.removeEventListener("touchmove", onTouchMove);
       container.removeEventListener("scroll", onScroll);
     };
-  }, [handleScrollPositionChange, loading]);
+  }, [reconcileScrollStick, loading]);
 
   // 新消息/回合结束：贴底时跟随；运行中即时贴底，空闲平滑滑到底部
   useLayoutEffect(() => {
@@ -1842,18 +1845,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       } else if (!initialScrollDoneRef.current) {
         initialScrollDoneRef.current = true;
         scrollToBottom("instant");
-      } else if (stickToBottomRef.current) {
+      } else if (reconcileScrollStick()) {
         scrollToBottom(agentRunningRef.current ? "instant" : "smooth");
       }
     }
-  }, [messages.length, scrollToBottom, scrollUserMsgToBottom]);
+  }, [messages.length, scrollToBottom, scrollUserMsgToBottom, reconcileScrollStick]);
 
   // 流式输出逐 token 更新：贴底时保持视野钉在最新内容上
   // layout effect 在 paint 前同步滚动，内容增长与滚动同帧完成，避免逐行增长时的闪烁
+  // 实时裁决替代 ref 判断，滚动操作当帧生效，不受事件派发时序影响
   useIsomorphicLayoutEffect(() => {
-    if (!streamState.isStreaming || !stickToBottomRef.current) return;
+    if (!streamState.isStreaming || !reconcileScrollStick()) return;
     scrollToBottom("instant");
-  }, [streamState.streamingMessage, streamState.isStreaming, scrollToBottom]);
+  }, [streamState.streamingMessage, streamState.isStreaming, scrollToBottom, reconcileScrollStick]);
 
   // Load model list
   useEffect(() => {
