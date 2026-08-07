@@ -1816,15 +1816,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       lastTouchY = y;
       onUserScroll();
     };
+    // 非滚轮滚动（滚动条拖动/程序化跳转）实时按位置判定，wheel 事件可能被节流或缺失
+    const onScroll = () => handleScrollPositionChange();
     container.addEventListener("wheel", onWheel, { passive: true });
     container.addEventListener("keydown", onKeyDown);
     container.addEventListener("touchstart", onTouchStart, { passive: true });
     container.addEventListener("touchmove", onTouchMove, { passive: true });
+    container.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       container.removeEventListener("wheel", onWheel);
       container.removeEventListener("keydown", onKeyDown);
       container.removeEventListener("touchstart", onTouchStart);
       container.removeEventListener("touchmove", onTouchMove);
+      container.removeEventListener("scroll", onScroll);
     };
   }, [handleScrollPositionChange, loading]);
 

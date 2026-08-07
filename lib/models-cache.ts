@@ -1,3 +1,5 @@
+import { invalidateContextModelRuntime } from "./context-usage";
+
 export interface ModelsData {
   models: Record<string, string>;
   modelList: { id: string; name: string; provider: string }[];
@@ -40,6 +42,7 @@ export function invalidateModelsCache(): void {
   state.generation += 1;
   state.entries.clear();
   state.inFlight.clear();
+  invalidateContextModelRuntime();
 }
 
 export function withModelRuntimeError(data: ModelsData, modelError: string | undefined): ModelsData {
