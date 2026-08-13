@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useCallback, useState, useRef, useEffect, useMemo } from "react";
+import { useDefaultExpanded } from "./zmhuanf/use-default-expanded";
 import { MarkdownBody } from "./MarkdownBody";
 import { ImagePreview } from "./ImagePreview";
 import { copyText } from "@/lib/clipboard";
@@ -890,11 +891,10 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, thinki
   thinkingDefaultExpanded?: boolean;
 }) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(thinkingDefaultExpanded ?? false);
+  const [expanded, toggle] = useDefaultExpanded(thinkingDefaultExpanded);
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const userToggledRef = useRef(false);
 
   const loadContent = useCallback(async () => {
     if (content !== null || !block.deferred) return;
@@ -919,21 +919,10 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, thinki
     }
   }, [block.deferred, blockIndex, content, entryId, sessionId, t]);
 
-  // 跟随"最后一轮默认展开"状态变化，手动操作过的块保持用户的选择
-  useEffect(() => {
-    if (userToggledRef.current) return;
-    setExpanded(thinkingDefaultExpanded ?? false);
-  }, [thinkingDefaultExpanded]);
-
   // 展开时拉取 deferred 内容，覆盖默认展开与手动展开两种路径
   useEffect(() => {
     if (expanded) void loadContent();
   }, [expanded, loadContent]);
-
-  const toggle = () => {
-    userToggledRef.current = true;
-    setExpanded((v) => !v);
-  };
 
   return (
     <div
@@ -986,22 +975,10 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, thinki
 
 
 function ToolCallBlock({ block, result, duration, defaultExpanded = false }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; defaultExpanded?: boolean }) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
-  const userToggledRef = useRef(false);
+  const [expanded, toggle] = useDefaultExpanded(defaultExpanded);
   const inputStr = JSON.stringify(block.input, null, 2);
   const isEditTool = isEditToolName(block.toolName);
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
-
-  // 跟随默认展开状态变化，手动操作过的块保持用户的选择
-  useEffect(() => {
-    if (userToggledRef.current) return;
-    setExpanded(defaultExpanded);
-  }, [defaultExpanded]);
-
-  const toggle = () => {
-    userToggledRef.current = true;
-    setExpanded((v) => !v);
-  };
 
   // Result display
   const resultText = result

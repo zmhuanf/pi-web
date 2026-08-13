@@ -9,6 +9,7 @@ import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-fi
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
+import { useDefaultExpanded } from "./zmhuanf/use-default-expanded";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { ExtensionWidgets } from "./ExtensionWidgets";
 import { useI18n } from "@/hooks/useI18n";
@@ -208,13 +209,7 @@ function withAssistantBlocks(
 }
 
 function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = false, children, t }: { messageCount: number; toolCallCount: number; defaultExpanded?: boolean; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
-  const userToggledRef = useRef(false);
-  // 跟随“最后一轮默认展开”状态变化，手动操作过的组保持用户的选择
-  useEffect(() => {
-    if (userToggledRef.current) return;
-    setExpanded(defaultExpanded);
-  }, [defaultExpanded]);
+  const [expanded, toggle] = useDefaultExpanded(defaultExpanded);
   const parts = [t("chat.processDetails"), `${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`];
   if (toolCallCount > 0) parts.push(`${toolCallCount} ${t(toolCallCount === 1 ? "chat.toolCall" : "chat.toolCalls")}`);
 
@@ -223,10 +218,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
       <button
         type="button"
         aria-expanded={expanded}
-        onClick={() => {
-          userToggledRef.current = true;
-          setExpanded((v) => !v);
-        }}
+        onClick={toggle}
         style={{
           display: "flex",
           alignItems: "center",
