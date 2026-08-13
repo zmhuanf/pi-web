@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer } from "react";
+
+// useLayoutEffect 在服务端渲染时不生效，这里做同构包装避免 hydration 告警
+const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 import type {
   AgentMessage,
   BlockingExtensionUiRequest,
@@ -1797,6 +1800,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     }
   }, [scrollToBottom]);
+
+  // 流式内容与滚动同帧完成：paint 前同步到底，避免内容渲染后滚动条下一帧才挪动的闪烁
+  useIsomorphicLayoutEffect(() => {
+    if (!streamState.isStreaming || !followingRef.current) return;
+    scrollToBottom("instant");
+  }, [streamState.streamingMessage, streamState.isStreaming, scrollToBottom]);
 
   // Load session on mount
   useEffect(() => {
