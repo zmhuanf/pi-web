@@ -867,7 +867,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                   const processGroup = (
                     <ProcessDetailsGroup
                       messageCount={processCount}
-                      defaultExpanded={!finalAnswerMessage}
+                      defaultExpanded={!finalAnswerMessage || (liveTailActive && userIdx >= lastAnchorIdx)}
                       t={t}
                       toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
                     >
