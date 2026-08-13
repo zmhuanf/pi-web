@@ -1349,6 +1349,39 @@ export function AppShell() {
     );
   };
 
+  const renderFollowButton = (mobile: boolean) => (
+    <button
+      type="button"
+      onClick={() => followControlRef.current?.toggle()}
+      title={translate(following ? "follow.titleActive" : "follow.titleInactive")}
+      aria-label={translate(following ? "follow.titleActive" : "follow.titleInactive")}
+      aria-pressed={following}
+      className={mobile ? "mobile-follow-toggle" : undefined}
+      style={{
+        display: "flex", alignItems: "center", justifyContent: "center",
+        gap: 6, height: "100%",
+        padding: mobile ? 0 : "0 12px",
+        flexShrink: 0,
+        minWidth: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
+        background: "none", border: "none",
+        borderTop: "2px solid transparent",
+        borderRight: mobile ? "none" : "1px solid var(--border)",
+        cursor: "pointer",
+        color: following ? "var(--text)" : "var(--text-muted)",
+        fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
+      }}
+      onMouseEnter={(event) => { event.currentTarget.style.color = "var(--text)"; }}
+      onMouseLeave={(event) => { event.currentTarget.style.color = following ? "var(--text)" : "var(--text-muted)"; }}
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: following ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }} aria-hidden="true">
+        <path d="M12 17V3" />
+        <path d="m6 11 6 6 6-6" />
+        <path d="M19 21H5" />
+      </svg>
+      {!mobile && <span>{translate(following ? "follow.active" : "follow.inactive")}</span>}
+    </button>
+  );
+
   const renderSessionStatsButton = (mobile: boolean) => {
     if (!mobile && (!showChat || (!sessionStats && !contextUsage))) return null;
 
@@ -1761,6 +1794,7 @@ export function AppShell() {
                   </svg>
                 )}
               </button>
+              {renderFollowButton(true)}
               {renderSessionStatsButton(true)}
               {renderMainFileToggle(true)}
               {mobileToolbarMoreOpen && (
@@ -1794,6 +1828,7 @@ export function AppShell() {
               {renderLanguageButton(false)}
               {renderProjectTrustWarning(false)}
               {renderChatToolbarActions(false)}
+              {renderFollowButton(false)}
               {renderSessionStatsButton(false)}
             </>
           )}
