@@ -1,0 +1,99 @@
+=====================================================
+  pi-web 本地定制开发规范（避免与远端合并冲突）
+=====================================================
+适用范围：本仓库（zmhuanf/pi-web）相对上游 agegr/pi-web 的
+本地定制。所有改动 AI 或人工修改前必须先读本文档。
+
+-----------------------------------------------------
+一、核心原则
+-----------------------------------------------------
+1. 本仓库 = 上游 agegr/pi-web + 本地定制。
+   上游会持续更新，每次合并都可能与本地定制冲突。
+2. 一切改法的唯一目标：合并冲突尽可能少。
+3. 判定标准：git diff <上游> 的行数越少越好，
+   尤其是「修改上游已有代码」的行数。
+
+-----------------------------------------------------
+二、代码放置规范（最重要）
+-----------------------------------------------------
+本地定制代码必须放进以下目录，禁止散落到上游文件：
+
+    lib/zmhuanf/          服务端逻辑（估算、常量、工具函数）
+    components/zmhuanf/   前端组件与 hooks
+
+现有文件：
+    lib/zmhuanf/preferences.ts          所有默认值常量（如 DEFAULT_TOOL_PRESET="full"）
+    lib/zmhuanf/context-usage.ts        老对话用量估算
+    components/zmhuanf/FollowButton.tsx 顶部栏跟随按钮
+    components/zmhuanf/use-default-expanded.ts  默认展开状态 hook
+
+新增定制时：
+    - 逻辑、组件、hook 一律放 zmhuanf/ 目录
+    - 上游文件里只允许留「桥接」：一行 import + 一处调用/透传
+    - 上游文件是零冲突的新增路径，改它们=主动制造冲突
+
+-----------------------------------------------------
+三、修改上游文件的红线
+-----------------------------------------------------
+禁止：
+    1. 删除或重构上游已有代码（只许增，不许减）
+    2. 修改上游的测试文件（*.test.mjs）
+    3. 为让测试变绿而迁就实现
+    4. 把本地常量硬编码在上游文件里（必须引用 zmhuanf/preferences）
+
+允许的最小改动（按优先级）：
+    - import 一行
+    - 函数体内加 1-2 行桥接调用
+    - 组件 props 加一个可选参数并透传（尽量用 hook/组件吸收逻辑）
+
+注意：
+    - 测试失败不代表功能坏，上游基底本身就带失败用例
+      （useAgentSession 4 个、MessageView 环境问题），不要为了
+      修测试去动实现或改断言
+    - 每次改完自查：git diff 上游 <文件>，确认没有多余删除
+
+-----------------------------------------------------
+四、现有定制清单（合并时人工重点检查）
+-----------------------------------------------------
+零冲突（新增文件）：
+    lib/zmhuanf/*  components/zmhuanf/*
+
+上游文件的桥接（合并冲突高发区，按风险排序）：
+    components/MessageView.tsx      ~72 行  思考默认展开/防闪烁/缓存
+    components/AppShell.tsx         ~42 行  用量显示格式、跟随按钮桥接
+    components/ChatWindow.tsx       ~58 行  ExtensionWidgets 分流、thinking 展开
+    hooks/useAgentSession.ts        ~55 行  跟随状态、paint 前同步滚动、toolNames 冷启动
+    lib/session-reader.ts           ~22 行  最后一条 thinking 内联
+    app/api/sessions/[id]/state/route.ts   老对话用量兜底
+    app/api/agent/[id]/route.ts  events/route.ts  冷启动 toolNames
+    components/ChatInput.tsx        默认 full（引用 preferences）
+    lib/models-cache.ts             用量缓存失效挂钩
+    lib/tool-preset-preference.ts   默认预设兜底 full
+    lib/i18n/messages/en.ts zh-CN.ts  跟随按钮文案
+    bin/pi-web-options.js           端口 30142
+    package.json                    仓库信息/端口/Windows build 修复
+
+-----------------------------------------------------
+五、本地定制功能清单（改坏前先确认需求）
+-----------------------------------------------------
+1. 默认工具预设 = full（改 lib/zmhuanf/preferences.ts 即可）
+2. 右上角用量显示「已用 / 上限」格式（AppShell）
+3. 老对话也有用量信息（context-usage.ts + state 路由）
+4. 思考/编辑默认展开（useDefaultExpanded hook + ChatWindow 尾部判定）
+5. thinking 内容防闪烁（缓存 + 底部留白 + 最后一条内联）
+6. 顶部栏跟随按钮（FollowButton）
+7. 流式追踪滚动 paint 前同步（消除逐帧闪烁）
+8. 冷启动携带 toolNames（保持 UI 与后端工具一致）
+9. 默认端口 30142
+
+-----------------------------------------------------
+六、合并上游的流程建议
+-----------------------------------------------------
+1. 小步合并：频繁 rebase 上游，不要攒大量改动后一次性合并
+2. 合并前先读本清单第四节，知道哪些文件会撞
+3. 冲突解决原则：zmhuanf/ 目录永远全选本地；
+   上游文件的冲突逐 hunk 看，本地桥接尽量保留，
+   上游新逻辑优先，桥接行重新放回
+4. 合并后：跑 tsc --noEmit 确认类型，测试允许不全绿
+5. 推送用 git push origin main（可能需要 --force 仅限
+   明确要求时，正常情况用普通 push）
