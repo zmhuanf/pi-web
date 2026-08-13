@@ -15,6 +15,7 @@ import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
 import { clearDraft, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-store";
+import { DEFAULT_TOOL_PRESET } from "@/lib/zmhuanf/preferences";
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import { getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -286,7 +287,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
-  const [toolPreset, setToolPreset] = useState<ToolPreset>("default");
+  const [toolPreset, setToolPreset] = useState<ToolPreset>(DEFAULT_TOOL_PRESET);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto");
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
@@ -330,6 +331,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const isNearBottomRef = useRef(true);
   const previousScrollTopRef = useRef(0);
   const liveFollowFrameRef = useRef<number | null>(null);
+  const [following, setFollowing] = useState(true);
+  const followingRef = useRef(true);
+  const setFollowState = useCallback((v: boolean) => {
+    followingRef.current = v;
+    setFollowing(v);
+  }, []);
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -375,10 +382,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [isNew, setToolPresetState]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    setFollowState(true);
     const container = scrollContainerRef.current;
     messagesEndRef.current?.scrollIntoView({ behavior });
     if (container) previousScrollTopRef.current = container.scrollTop;
-  }, []);
+  }, [setFollowState]);
 
   const currentModel = currentModelOverride ?? data?.context.model ?? pendingModel ?? null;
   const displayModel = isNew ? (newSessionModel ?? newSessionDefaultModel) : currentModel;
@@ -542,12 +550,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const tools = await sendAgentCommand<ToolEntry[]>(sid, { type: "get_tools" });
       if (tools) {
         const { getPresetFromTools } = await import("@/lib/tool-presets");
-        setToolPresetState(getPresetFromTools(tools));
+        const actual = getPresetFromTools(tools);
+        // UI 显示什么，后端就必须是什么，冷启动回退到默认预设时强制对齐
+        if (actual !== toolPreset) {
+          await sendAgentCommand(sid, {
+            type: "set_tools",
+            toolNames: getToolNamesForPreset(toolPreset),
+          });
+        }
+        setToolPresetState(toolPreset);
       }
     } catch (e) {
       console.error("Failed to load tools:", e);
     }
-  }, [setToolPresetState]);
+  }, [setToolPresetState, toolPreset]);
 
   const promoteNewSession = useCallback((messageCount = 0, firstMessage = "(no messages)") => {
     const sid = sessionIdRef.current;
@@ -1296,6 +1312,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         await sendAgentCommand(sid, {
           type: "prompt",
           message,
+          toolNames: getToolNamesForPreset(toolPreset),
           ...(piImages?.length ? { images: piImages } : {}),
         });
         promoteNewSession(1, message);
@@ -1306,6 +1323,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         await sendAgentCommand(session.id, {
           type: "prompt",
           message,
+          toolNames: getToolNamesForPreset(toolPreset),
           ...(piImages?.length ? { images: piImages } : {}),
         });
       } else {
@@ -1361,6 +1379,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       await sendAgentCommand(sid, {
         type: "bash",
         command,
+        toolNames: getToolNamesForPreset(toolPreset),
         excludeFromContext,
       });
       await loadSession(sid);
@@ -1630,6 +1649,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       await sendAgentCommand(sid, {
         type: "prompt",
         message,
+        toolNames: getToolNamesForPreset(toolPreset),
         streamingBehavior: behavior,
         ...(piImages?.length ? { images: piImages } : {}),
       });
@@ -1718,6 +1738,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [setToolPresetState]);
 
+  const toggleFollow = useCallback(() => {
+    if (followingRef.current) {
+      // 关闭跟随：钉住当前位置，阻止后续自动滚动
+      setFollowState(false);
+      isNearBottomRef.current = false;
+      if (liveFollowFrameRef.current !== null) {
+        cancelAnimationFrame(liveFollowFrameRef.current);
+        liveFollowFrameRef.current = null;
+      }
+    } else {
+      scrollToBottom("smooth");
+    }
+  }, [scrollToBottom, setFollowState]);
+
   const scrollUserMsgToTop = useCallback(() => {
     const container = scrollContainerRef.current;
     const el = lastUserMsgRef.current;
@@ -1753,6 +1787,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       );
       isNearBottomRef.current = isAttached;
       previousScrollTopRef.current = scrollTop;
+      // 附着状态变化 = 用户真实滚动（内容增长保持附着），同步跟随开关
+      if (isAttached !== wasAttached) setFollowState(isAttached);
       if (!wasAttached && isAttached && isAgentRunning) {
         scrollToBottom("auto");
       } else if (!isAttached && liveFollowFrameRef.current !== null) {
@@ -1920,7 +1956,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleRecallQueue,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
-    scrollToBottom, scrollUserMsgToTop,
+    scrollToBottom, scrollUserMsgToTop, toggleFollow, following,
     dispatch, setAgentRunning, setForkingEntryId,
     bashRunning, pendingBash,
     // Subscriptions

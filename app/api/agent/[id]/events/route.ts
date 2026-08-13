@@ -12,6 +12,11 @@ export async function GET(
   const { id } = await params;
   if (req.signal.aborted) return new Response(null, { status: 204 });
 
+  // Cold-start tool selection carried from the client so a re-opened session
+  // keeps the tools the UI displayed instead of the SDK default four
+  const toolNamesParam = new URL(req.url).searchParams.get("toolNames");
+  const coldStartToolNames = toolNamesParam ? toolNamesParam.split(",") : undefined;
+
   // Fast path: already-running session
   const session = getRpcSession(id);
   let sessionPromise;
@@ -23,7 +28,9 @@ export async function GET(
       return new Response("Session not found", { status: 404 });
     }
     if (req.signal.aborted) return new Response(null, { status: 204 });
-    sessionPromise = startRpcSession(id, filePath, undefined).then((result) => result.session);
+    sessionPromise = startRpcSession(id, filePath, undefined, {
+      ...(coldStartToolNames ? { toolNames: coldStartToolNames } : {}),
+    }).then((result) => result.session);
   }
 
   const stream = createAgentEventStream(req, id, sessionPromise);

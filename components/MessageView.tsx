@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState, useRef, useEffect, useMemo } from "react";
+import { memo, useCallback, useState, useRef, useEffect, useMemo } from "react";
 import { MarkdownBody } from "./MarkdownBody";
 import { ImagePreview } from "./ImagePreview";
 import { copyText } from "@/lib/clipboard";
@@ -78,7 +78,15 @@ function estimateUpdatedTokens(previous: TokenEstimateCacheEntry | undefined, te
 }
 
 const MAX_THINKING_CACHE_ENTRIES = 100;
+// 思考内容区底部比文字多留的行数（乘 lineHeight 1.6em 得实际高度）
+const THINKING_EXTRA_BOTTOM_LINES = 3;
 const thinkingContentCache = new Map<string, Promise<string>>();
+// 已加载完成的思考内容，组件重挂载后直接取用，避免重新走 loading 帧
+const thinkingContentValueCache = new Map<string, string>();
+
+function thinkingCacheKey(sessionId: string, entryId: string, blockIndex: number): string {
+  return `${sessionId}:${entryId}:${blockIndex}`;
+}
 
 // Messages larger than this skip markdown rendering entirely. react-markdown +
 // KaTeX + syntax highlighting on multi-hundred-KB payloads (e.g. pasted HAR or
@@ -147,7 +155,7 @@ function SafeMarkdownBody({ children, className, ...props }: React.ComponentProp
 const USER_BUBBLE_MAX_HEIGHT = 300;
 
 function loadThinkingContent(sessionId: string, entryId: string, blockIndex: number): Promise<string> {
-  const key = `${sessionId}:${entryId}:${blockIndex}`;
+  const key = thinkingCacheKey(sessionId, entryId, blockIndex);
   const cached = thinkingContentCache.get(key);
   if (cached) {
     thinkingContentCache.delete(key);
@@ -161,6 +169,7 @@ function loadThinkingContent(sessionId: string, entryId: string, blockIndex: num
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json() as { thinking?: unknown };
     if (typeof data.thinking !== "string") throw new Error("Invalid thinking response");
+    thinkingContentValueCache.set(key, data.thinking);
     return data.thinking;
   }).catch((error) => {
     thinkingContentCache.delete(key);
@@ -170,7 +179,10 @@ function loadThinkingContent(sessionId: string, entryId: string, blockIndex: num
   thinkingContentCache.set(key, request);
   if (thinkingContentCache.size > MAX_THINKING_CACHE_ENTRIES) {
     const oldestKey = thinkingContentCache.keys().next().value;
-    if (oldestKey) thinkingContentCache.delete(oldestKey);
+    if (oldestKey) {
+      thinkingContentCache.delete(oldestKey);
+      thinkingContentValueCache.delete(oldestKey);
+    }
   }
   return request;
 }
@@ -191,6 +203,7 @@ interface Props {
   showTimestamp?: boolean;
   prevTimestamp?: number;
   sessionId?: string;
+  thinkingDefaultExpanded?: boolean;
   /**
    * Files this turn wrote, derived by the caller from the whole turn's
    * successful write/edit tool calls. ChatWindow computes this because the
@@ -246,12 +259,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, writtenFiles }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, thinkingDefaultExpanded, writtenFiles }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} writtenFiles={writtenFiles} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} thinkingDefaultExpanded={thinkingDefaultExpanded} writtenFiles={writtenFiles} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -282,7 +295,8 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.onEditContent === next.onEditContent
     && prev.showTimestamp === next.showTimestamp
     && prev.prevTimestamp === next.prevTimestamp
-    && prev.sessionId === next.sessionId;
+    && prev.sessionId === next.sessionId
+    && prev.thinkingDefaultExpanded === next.thinkingDefaultExpanded;
 });
 
 function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent }: {
@@ -577,6 +591,7 @@ function AssistantMessageView({
   prevTimestamp,
   sessionId,
   entryId,
+  thinkingDefaultExpanded,
   writtenFiles,
 }: {
   message: AssistantMessage;
@@ -589,6 +604,7 @@ function AssistantMessageView({
   prevTimestamp?: number;
   sessionId?: string;
   entryId?: string;
+  thinkingDefaultExpanded?: boolean;
   writtenFiles?: WrittenFile[];
 }) {
   const { t } = useI18n();
@@ -767,7 +783,7 @@ function AssistantMessageView({
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {blockItems.map(({ block, originalIndex }) => (
-          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
+          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} thinkingDefaultExpanded={thinkingDefaultExpanded} />
         ))}
       </div>
 
@@ -845,18 +861,18 @@ function AssistantMessageView({
   );
 }
 
-function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCallDurations, cwd, onOpenFile, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
+function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCallDurations, cwd, onOpenFile, sessionId, entryId, blockIndex, thinkingDefaultExpanded }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string) => void; sessionId?: string; entryId?: string; blockIndex: number; thinkingDefaultExpanded?: boolean }) {
   if (block.type === "text") {
     return <TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} />;
   }
   if (block.type === "thinking") {
-    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} />;
+    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} thinkingDefaultExpanded={thinkingDefaultExpanded} />;
   }
   if (block.type === "toolCall") {
     const tc = block as ToolCallContent;
     const result = toolResults?.get(tc.toolCallId);
     const duration = toolCallDurations?.get(tc.toolCallId);
-    return <ToolCallBlock block={tc} result={result} duration={duration} />;
+    return <ToolCallBlock block={tc} result={result} duration={duration} defaultExpanded={isEditToolName(tc.toolName) ? thinkingDefaultExpanded : undefined} />;
   }
   return null;
 }
@@ -865,28 +881,33 @@ function TextBlock({ block, isStreaming, cwd, onOpenFile }: { block: TextContent
   return <SafeMarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile}>{block.text}</SafeMarkdownBody>;
 }
 
-function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
+function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, thinkingDefaultExpanded }: {
   block: ThinkingContent;
   duration?: number;
   sessionId?: string;
   entryId?: string;
   blockIndex: number;
+  thinkingDefaultExpanded?: boolean;
 }) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(thinkingDefaultExpanded ?? false);
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const userToggledRef = useRef(false);
 
-  const toggle = async () => {
-    const nextExpanded = !expanded;
-    setExpanded(nextExpanded);
-    if (!nextExpanded || !block.deferred || content !== null) return;
+  const loadContent = useCallback(async () => {
+    if (content !== null || !block.deferred) return;
     if (!sessionId || !entryId) {
       setError(t("i18n.thinkingUnavailable"));
       return;
     }
-
+    // 重挂载后命中已加载缓存则直接展示，跳过 loading 帧
+    const cachedValue = thinkingContentValueCache.get(thinkingCacheKey(sessionId, entryId, blockIndex));
+    if (cachedValue !== undefined) {
+      setContent(cachedValue);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -896,6 +917,22 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
     } finally {
       setLoading(false);
     }
+  }, [block.deferred, blockIndex, content, entryId, sessionId, t]);
+
+  // 跟随"最后一轮默认展开"状态变化，手动操作过的块保持用户的选择
+  useEffect(() => {
+    if (userToggledRef.current) return;
+    setExpanded(thinkingDefaultExpanded ?? false);
+  }, [thinkingDefaultExpanded]);
+
+  // 展开时拉取 deferred 内容，覆盖默认展开与手动展开两种路径
+  useEffect(() => {
+    if (expanded) void loadContent();
+  }, [expanded, loadContent]);
+
+  const toggle = () => {
+    userToggledRef.current = true;
+    setExpanded((v) => !v);
   };
 
   return (
@@ -908,7 +945,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
       }}
     >
       <button
-        onClick={() => void toggle()}
+        onClick={toggle}
         style={{
           display: "flex",
           alignItems: "center",
@@ -931,7 +968,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
       {expanded && (
         <div
           style={{
-            padding: "8px 10px",
+            padding: `8px 10px calc(${THINKING_EXTRA_BOTTOM_LINES} * 1.6em)`,
             color: error ? "#f87171" : "var(--text-muted)",
             fontSize: 12,
             lineHeight: 1.6,
@@ -948,11 +985,23 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
 }
 
 
-function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number }) {
-  const [expanded, setExpanded] = useState(false);
+function ToolCallBlock({ block, result, duration, defaultExpanded = false }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; defaultExpanded?: boolean }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const userToggledRef = useRef(false);
   const inputStr = JSON.stringify(block.input, null, 2);
   const isEditTool = isEditToolName(block.toolName);
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
+
+  // 跟随默认展开状态变化，手动操作过的块保持用户的选择
+  useEffect(() => {
+    if (userToggledRef.current) return;
+    setExpanded(defaultExpanded);
+  }, [defaultExpanded]);
+
+  const toggle = () => {
+    userToggledRef.current = true;
+    setExpanded((v) => !v);
+  };
 
   // Result display
   const resultText = result
@@ -973,7 +1022,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
     >
       {/* ── Tool call header ── */}
       <button
-        onClick={() => setExpanded((v) => !v)}
+        onClick={toggle}
         style={{
           display: "flex",
           alignItems: "center",

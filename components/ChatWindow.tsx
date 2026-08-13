@@ -10,8 +10,9 @@ import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
+import { ExtensionWidgets } from "./ExtensionWidgets";
 import { useI18n } from "@/hooks/useI18n";
-import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
+import { useAgentSession, type AgentPhase, type AttachedImage, type NoticeItem } from "@/hooks/useAgentSession";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -42,6 +43,8 @@ interface Props {
   onSessionStatsChange?: (stats: SessionStatsInfo | null) => void;
   onSessionStatsPanelOpen?: () => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
+  onFollowStateChange?: (following: boolean) => void;
+  followControlRef?: React.RefObject<{ toggle: () => void } | null>;
   onOpenFile?: (filePath: string) => void;
   /** Completion sound state + controls, owned by AppShell so tasks finishing in
    *  a non-active workspace can still ring. */
@@ -206,6 +209,12 @@ function withAssistantBlocks(
 
 function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = false, children, t }: { messageCount: number; toolCallCount: number; defaultExpanded?: boolean; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
+  const userToggledRef = useRef(false);
+  // 跟随“最后一轮默认展开”状态变化，手动操作过的组保持用户的选择
+  useEffect(() => {
+    if (userToggledRef.current) return;
+    setExpanded(defaultExpanded);
+  }, [defaultExpanded]);
   const parts = [t("chat.processDetails"), `${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`];
   if (toolCallCount > 0) parts.push(`${toolCallCount} ${t(toolCallCount === 1 ? "chat.toolCall" : "chat.toolCalls")}`);
 
@@ -214,7 +223,10 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
       <button
         type="button"
         aria-expanded={expanded}
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => {
+          userToggledRef.current = true;
+          setExpanded((v) => !v);
+        }}
         style={{
           display: "flex",
           alignItems: "center",
@@ -247,7 +259,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onFollowStateChange, followControlRef, onOpenFile, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
 
@@ -282,6 +294,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     isAutoModelSelection,
     agentPhase,
     isNew,
+    following, toggleFollow,
     sessionIdRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, promptAnchorActive,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
@@ -294,6 +307,29 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
+  // 编辑器上方/下方的扩展组件（按 placement 分流）
+  const aboveEditorWidgets = extensionWidgets.filter((widget) => widget.placement !== "belowEditor");
+  const belowEditorWidgets = extensionWidgets.filter((widget) => widget.placement === "belowEditor");
+  // 跟随状态上推给顶部栏实时显示
+  useEffect(() => {
+    onFollowStateChange?.(following);
+  }, [following, onFollowStateChange]);
+  // 暴露强制切换控制给顶部栏按钮
+  useEffect(() => {
+    if (!followControlRef) return;
+    followControlRef.current = { toggle: toggleFollow };
+    return () => { followControlRef.current = null; };
+  }, [followControlRef, toggleFollow]);
+  // 本次会话打开期间出现过实时输出，则最后一轮保持展开；重新打开历史会话时折叠
+  const tailWasActiveRef = useRef(false);
+  // 发送 prompt 时同步置位，避免输出瞬时完成时 useEffect 观察不到运行状态导致最后一轮误折叠
+  const handleSendWithTail = useCallback((message: string, images?: AttachedImage[]) => {
+    tailWasActiveRef.current = true;
+    void handleSend(message, images);
+  }, [handleSend]);
+  useEffect(() => {
+    if (sessionBusy || streamState.isStreaming) tailWasActiveRef.current = true;
+  }, [sessionBusy, streamState.isStreaming]);
 
   useEffect(() => {
     if (!extensionDialog || soundedExtensionDialogIdRef.current === extensionDialog.id) return;
@@ -531,7 +567,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const chatInputElement = (
     <ChatInput
       ref={chatInputRef}
-      onSend={handleSend}
+      onSend={handleSendWithTail}
       onAbort={handleAbort}
       onSteer={agentRunning ? handleSteer : undefined}
       onFollowUp={agentRunning ? handleFollowUp : undefined}
@@ -698,6 +734,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
         <div ref={scrollContainerRef} className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-width:none]">
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
             <div ref={messageContentRef} style={{ width: "100%", minWidth: 0, maxWidth: 820, margin: "0 auto" }}>
+              <ExtensionWidgets widgets={aboveEditorWidgets} />
+
             {(() => {
               let lastUserIdx = -1;
               for (let i = messages.length - 1; i >= 0; i--) {
@@ -712,6 +750,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               for (let i = messages.length - 1; i >= 0; i--) {
                 if (isGroupAnchor(messages[i])) { lastAnchorIdx = i; break; }
               }
+              // 会话期间发生过实时输出，则最后一轮思考默认展开；历史浏览保持折叠
+              const liveTailActive = tailWasActiveRef.current || sessionBusy || streamState.isStreaming;
 
               const visibleRefIndexByMessage = new Map<number, number>();
               let refIdx = 0;
@@ -726,7 +766,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
               };
 
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[] } = {}): ReactNode => {
+              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; thinkingDefaultExpanded?: boolean; writtenFiles?: WrittenFile[] } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
                 const prevAssistantEntryId =
                   msg.role === "user" && idx > 0 && messages[idx - 1].role === "assistant"
@@ -766,6 +806,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
+                    thinkingDefaultExpanded={options.thinkingDefaultExpanded ?? (liveTailActive && idx >= lastAnchorIdx)}
                     writtenFiles={options.writtenFiles}
                   />
                 );
@@ -885,7 +926,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               );
             })()}
             {streamState.isStreaming && hasStreamingContent && streamState.streamingMessage && (
-              <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} />
+              <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} thinkingDefaultExpanded />
             )}
 
             {agentRunning && !hasStreamingContent && agentPhase && (
@@ -930,6 +971,17 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       </div>
 
       <div className="relative">
+        <div
+          style={{
+            padding: `0 ${CHAT_COLUMN_PADDING}px`,
+            paddingRight: isMobile ? CHAT_COLUMN_PADDING : CHAT_INPUT_RIGHT_PADDING,
+          }}
+        >
+          <div style={{ maxWidth: 820, margin: "0 auto" }}>
+            <ExtensionWidgets widgets={belowEditorWidgets} />
+          </div>
+        </div>
+
         {chatInputElement}
         <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} />
       </div>

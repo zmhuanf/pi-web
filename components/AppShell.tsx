@@ -172,6 +172,9 @@ export function AppShell() {
     reclampRightPanelWidth();
   }, [reclampRightPanelWidth, reclampSidebarWidth, rightPanelOpen]);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
+  // 跟随按钮控制：ChatWindow 挂载 toggleFollow，点击强制切换
+  const followControlRef = useRef<{ toggle: () => void } | null>(null);
+  const [following, setFollowing] = useState(true);
   const topBarRef = useRef<HTMLDivElement>(null);
   const mobileToolbarRef = useRef<HTMLDivElement>(null);
   const languageBtnRef = useRef<HTMLButtonElement>(null);
@@ -1361,14 +1364,19 @@ export function AppShell() {
     let contextColor = "var(--text-muted)";
     let desktopContextText: string | null = null;
     let mobileContextText: string | null = null;
+    let ctxPct: number | null = null;
     if (contextUsage?.contextWindow) {
-      const percent = contextUsage.percent;
-      if (percent !== null && percent > 90) contextColor = "#ef4444";
-      else if (percent !== null && percent > 70) contextColor = "rgba(234,179,8,0.95)";
-      desktopContextText = percent !== null
-        ? `${percent.toFixed(0)}% / ${formatCompact(contextUsage.contextWindow)}`
-        : `? / ${formatCompact(contextUsage.contextWindow)}`;
-      mobileContextText = percent !== null ? `${percent.toFixed(0)}%` : null;
+      const { percent, tokens: usedTokens, contextWindow } = contextUsage;
+      // 历史会话兜底数据可能没有 percent，用已用 token 反推，保证颜色阈值和文本都可用
+      ctxPct = percent ?? (usedTokens !== null ? (usedTokens / contextWindow) * 100 : null);
+      if (ctxPct !== null && ctxPct > 90) contextColor = "#ef4444";
+      else if (ctxPct !== null && ctxPct > 70) contextColor = "rgba(234,179,8,0.95)";
+      desktopContextText = usedTokens !== null
+        ? `${formatCompact(usedTokens)} / ${formatCompact(contextWindow)}`
+        : ctxPct !== null
+          ? `${ctxPct.toFixed(0)}% / ${formatCompact(contextWindow)}`
+          : `? / ${formatCompact(contextWindow)}`;
+      mobileContextText = desktopContextText;
     }
 
     const tooltipParts: string[] = [];
@@ -1380,8 +1388,8 @@ export function AppShell() {
       if (cost > 0) tooltipParts.push(`cost: $${cost.toFixed(4)}`);
     }
     if (contextUsage?.contextWindow) {
-      const percent = contextUsage.percent;
-      tooltipParts.push(`context: ${percent !== null ? percent.toFixed(1) + "%" : "unknown"} of ${contextUsage.contextWindow.toLocaleString()} tokens`);
+      const used = contextUsage.tokens;
+      tooltipParts.push(`context: ${used !== null ? used.toLocaleString(locale) : "unknown"} / ${contextUsage.contextWindow.toLocaleString()} tokens${ctxPct !== null ? ` (${ctxPct.toFixed(1)}%)` : ""}`);
     }
     const tooltip = tooltipParts.join("  |  ");
     const covered = mobile && mobileToolbarMoreOpen;
@@ -1927,10 +1935,9 @@ export function AppShell() {
                        [translate("session.total"), sessionStats.tokens.total.toLocaleString(locale)],
                     ];
                     const ctx = contextUsage ?? sessionStats.contextUsage;
-                    const formatCompact = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
                     const extraTokenRows = [
                        ...(sessionStats.cost > 0 ? [[translate("session.cost"), `$${sessionStats.cost.toFixed(4)}`]] : []),
-                       ...(ctx?.contextWindow ? [[translate("session.context"), `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompact(ctx.contextWindow)}`]] : []),
+                       ...(ctx?.contextWindow ? [[translate("session.context"), `${ctx.tokens !== null ? ctx.tokens.toLocaleString(locale) : "?"} / ${ctx.contextWindow.toLocaleString(locale)}`]] : []),
                        // Cache hit rate = cache reads / (input + cache writes + cache reads) — the denominator covers all input-class tokens.
                        ...(sessionStats.tokens.cacheRead + sessionStats.tokens.cacheWrite > 0 && sessionStats.tokens.cacheRead + sessionStats.tokens.cacheWrite + sessionStats.tokens.input > 0
                          ? [[translate("session.cacheHitRate"), `${(sessionStats.tokens.cacheRead / (sessionStats.tokens.cacheRead + sessionStats.tokens.cacheWrite + sessionStats.tokens.input) * 100).toFixed(1)}%`]]
@@ -2085,6 +2092,8 @@ export function AppShell() {
               onSessionStatsChange={handleSessionStatsChange}
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onContextUsageChange={handleContextUsageChange}
+              onFollowStateChange={setFollowing}
+              followControlRef={followControlRef}
               onOpenFile={handleOpenLinkedFile}
               soundEnabled={soundEnabled}
               onSoundToggle={onSoundToggle}

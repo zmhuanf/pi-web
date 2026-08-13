@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useRef, useState, useCallback, useEffect, useLayoutEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
+import { DEFAULT_TOOL_PRESET } from "@/lib/zmhuanf/preferences";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
 import type { SkillsResponse } from "@/lib/api-types";
 import type { TextContent, UserMessage } from "@/lib/types";
@@ -1322,7 +1323,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (lvl === "auto" || !thinkingLevelMap) return lvl;
     return thinkingLevelMap[lvl] ?? lvl;
   })();
-  const toolPresetLabel = Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "default"))?.[0] ?? "default";
+  const toolPresetLabel = Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? DEFAULT_TOOL_PRESET))?.[0] ?? DEFAULT_TOOL_PRESET;
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -2439,7 +2440,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   }}>
                     {TOOL_PRESETS.map((lvl) => {
                       const preset = TOOL_PRESET_MAP[lvl];
-                      const isActive = (toolPreset ?? "default") === preset;
+                      const isActive = (toolPreset ?? DEFAULT_TOOL_PRESET) === preset;
                       let desc: string;
                       if (lvl === "off") desc = t("chat.noTools");
                       else if (lvl === "read-only") desc = t("chat.readOnlyTools", { count: 4 });
