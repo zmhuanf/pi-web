@@ -30,6 +30,7 @@ import {
   CHAT_SCROLL_TAIL_TOLERANCE,
   getLiveFollowAttached,
 } from "@/lib/chat-lazy-load";
+import { schedulePostLayoutBottomFix } from "@/lib/zmhuanf/scroll-anchor";
 import {
   INITIAL_STREAMING_STATE,
   streamReducer,
@@ -1924,6 +1925,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         scrollToBottom("instant");
       } else if (!agentRunningRef.current && isNearBottomRef.current) {
         scrollToBottom("auto");
+        // 桥接：折叠等二次布局后仍贴底，避免结束时往上跳
+        schedulePostLayoutBottomFix(scrollContainerRef.current, followingRef, isNearBottomRef, scrollToBottom);
       }
     }
   }, [messages.length, agentRunning, scrollToBottom, scrollUserMsgToTop]);
