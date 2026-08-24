@@ -9,6 +9,7 @@ export function releaseAnchorWithStableScroll(
 ): void {
   if (!spacer) return
   const prevHeight = spacer.getBoundingClientRect().height
+  const prevScrollTop = container?.scrollTop ?? 0
   spacer.style.height = ""
   if (!container || prevHeight <= 0) return
 
@@ -21,11 +22,13 @@ export function releaseAnchorWithStableScroll(
     return
   }
 
-  const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight + prevHeight
-  const clamped = Math.max(0, distanceFromBottom)
-  container.scrollTop = container.scrollHeight - container.clientHeight - clamped
+  // 关闭跟随即钉住当前位置，spacer 释放不应改变视口顶部内容位置
+  // 原实现从底部算相对距离使视口下移 spacer 高度，长对话下跳一大截
+  const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight)
+  const clampedTop = Math.min(prevScrollTop, maxScrollTop)
+  container.scrollTop = clampedTop
   requestAnimationFrame(() => {
-    container.scrollTop = container.scrollHeight - container.clientHeight - clamped
+    container.scrollTop = clampedTop
   })
 }
 
