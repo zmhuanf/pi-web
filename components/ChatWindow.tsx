@@ -26,7 +26,7 @@ import {
   restoreScrollTop,
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
-import { releaseAnchorWithStableScroll } from "@/lib/zmhuanf/scroll-anchor";
+import { retainAnchorSpacer } from "@/lib/zmhuanf/scroll-anchor";
 
 interface Props {
   session: SessionInfo | null;
@@ -463,10 +463,9 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     const spacer = promptAnchorSpacerRef.current;
     if (!agentRunning || !promptAnchorActive) {
       promptAnchorUpdateRef.current = null;
-      promptAnchorSpacerHeightRef.current = 0;
       promptAnchorAdjustmentDoneRef.current = false;
-      // 桥接：稳定释放锚点占位，避免结束时往上跳
-      if (spacer) releaseAnchorWithStableScroll(spacer, scrollContainerRef.current, following);
+      // 桥接：保留锚点撑高为底部留白，结束时视口不跳；同步高度供下轮比较
+      promptAnchorSpacerHeightRef.current = retainAnchorSpacer(spacer);
       return;
     }
 
