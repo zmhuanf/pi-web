@@ -97,3 +97,20 @@
 4. 合并后：跑 tsc --noEmit 确认类型，测试允许不全绿
 5. 推送用 git push origin main（可能需要 --force 仅限
    明确要求时，正常情况用普通 push）
+
+-----------------------------------------------------
+七、依赖安装红线（AI 别再弄坏本地环境）
+-----------------------------------------------------
+1. 本机终端默认 NODE_ENV=production。
+   npm install 在此环境下会跳过全部 devDependencies
+   （react-markdown、tailwindcss、typescript 等），
+   表现为 tsc 报 Cannot find module react-markdown 之类。
+2. 确需安装/恢复依赖时，只允许这一条命令：
+       npm install --include=dev
+   或用一次性环境变量：NODE_ENV=development npm install
+   禁止只跑裸 npm install 后就宣称环境已恢复。
+3. 合并上游与依赖无关时，禁止顺手执行 npm install /
+   npm ci / 清理 node_modules。依赖环境只归本地人工维护。
+4. node_modules 缺包时先问人工，不要自作主张重装整个
+   依赖树。Windows 下 npm 清理遇 EPERM 会留下半删目录，
+   进一步破坏 node_modules。
