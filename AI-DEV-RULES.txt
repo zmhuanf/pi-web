@@ -25,7 +25,6 @@
     lib/zmhuanf/preferences.ts          所有默认值常量（如 DEFAULT_TOOL_PRESET="full"）
     lib/zmhuanf/context-usage.ts        老对话用量估算
     components/zmhuanf/FollowButton.tsx 顶部栏跟随按钮
-    components/zmhuanf/use-default-expanded.ts  默认展开状态 hook
 
 新增定制时：
     - 逻辑、组件、hook 一律放 zmhuanf/ 目录
@@ -61,7 +60,6 @@
     lib/zmhuanf/scroll-anchor.ts      二次布局后贴底 + 锚点撑高保留
     lib/zmhuanf/thinking-inline.ts    最后一条思考内联判定
     components/zmhuanf/FollowButton.tsx
-    components/zmhuanf/use-default-expanded.ts  （v0.9.0 起已无引用，待删）
 
 上游文件的桥接（合并冲突高发区，按风险排序；均为「import + 少行调用」）：
     hooks/useAgentSession.ts         跟随状态+toggleFollow、同构 layoutEffect、
