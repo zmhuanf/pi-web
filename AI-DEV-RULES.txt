@@ -55,36 +55,43 @@
 -----------------------------------------------------
 四、现有定制清单（合并时人工重点检查）
 -----------------------------------------------------
-零冲突（新增文件）：
-    lib/zmhuanf/*  components/zmhuanf/*
+零冲突（新增文件，永留本地目录）：
+    lib/zmhuanf/context-usage.ts      老对话用量估算
+    lib/zmhuanf/preferences.ts        默认值常量（DEFAULT_TOOL_PRESET="full"）
+    lib/zmhuanf/scroll-anchor.ts      二次布局后贴底 + 锚点撑高保留
+    lib/zmhuanf/thinking-inline.ts    最后一条思考内联判定
+    components/zmhuanf/FollowButton.tsx
+    components/zmhuanf/use-default-expanded.ts  （v0.9.0 起已无引用，待删）
 
-上游文件的桥接（合并冲突高发区，按风险排序）：
-    components/MessageView.tsx      ~72 行  思考默认展开/防闪烁/缓存
-    components/AppShell.tsx         ~42 行  用量显示格式、跟随按钮桥接
-    components/ChatWindow.tsx       ~58 行  ExtensionWidgets 分流、thinking 展开
-    hooks/useAgentSession.ts        ~55 行  跟随状态、paint 前同步滚动、toolNames 冷启动
-    lib/session-reader.ts           ~22 行  最后一条 thinking 内联
-    app/api/sessions/[id]/state/route.ts   老对话用量兜底
-    app/api/agent/[id]/route.ts  events/route.ts  冷启动 toolNames
-    components/ChatInput.tsx        默认 full（引用 preferences）
-    lib/models-cache.ts             用量缓存失效挂钩
-    lib/tool-preset-preference.ts   默认预设兜底 full
-    lib/i18n/messages/en.ts zh-CN.ts  跟随按钮文案
-    bin/pi-web-options.js           端口 30142
-    package.json                    仓库信息/端口/Windows build 修复
+上游文件的桥接（合并冲突高发区，按风险排序；均为「import + 少行调用」）：
+    hooks/useAgentSession.ts         跟随状态+toggleFollow、同构 layoutEffect、
+                                     toolNames 冷启动/对齐、DEFAULT_TOOL_PRESET、
+                                     schedulePostLayoutBottomFix（~60 行）
+    components/AppShell.tsx          跟随按钮 state/渲染 + 用量「已用/上限」格式（~30 行）
+    components/ChatWindow.tsx        跟随状态桥接（props+useEffect）+ retainAnchorSpacer（~20 行）
+    components/MessageView.tsx       编辑工具默认展开 2 行（用上游 isThinkingExpandedByDefault）
+    lib/session-reader.ts            最后一条思考内联桥接（3 行）
+    app/api/sessions/[id]/state/route.ts  老对话用量兑底
+    app/api/agent/[id]/events/route.ts    冷启动 toolNames 查询参数（上游仅 route.ts 有）
+    components/ChatInput.tsx         默认 full（引用 preferences）
+    lib/models-cache.ts              用量缓存失效挂钩
+    lib/tool-preset-preference.ts    默认预设兑底 full
+    lib/i18n/messages/en.ts zh-CN.ts 跟随按钮文案
+    package.json                     端口 30142/Windows build 修复（保留上游 postinstall）
 
 -----------------------------------------------------
 五、本地定制功能清单（改坏前先确认需求）
 -----------------------------------------------------
-1. 默认工具预设 = full（改 lib/zmhuanf/preferences.ts 即可）
+（v0.9.0 合并后现状：上游已吸收项在第八节标注，以下仅列出本地独有）
+1. 默认工具预设 = full（lib/zmhuanf/preferences.ts 全局唯一开关）
 2. 右上角用量显示「已用 / 上限」格式（AppShell）
 3. 老对话也有用量信息（context-usage.ts + state 路由）
-4. 思考/编辑默认展开（useDefaultExpanded hook + ChatWindow 尾部判定）
-5. thinking 内容防闪烁（缓存 + 底部留白 + 最后一条内联）
-6. 顶部栏跟随按钮（FollowButton）
-7. 流式追踪滚动 paint 前同步（消除逐帧闪烁）
-8. 冷启动携带 toolNames（保持 UI 与后端工具一致）
-9. 默认端口 30142
+4. 跟随按钮（FollowButton + AppShell/ChatWindow/useAgentSession 桥接）
+5. 思考防闪烁：最后一条思考内联（thinking-inline.ts）+
+   流式 paint 前同步 + 折叠二次布局贴底（scroll-anchor）
+6. 编辑工具默认展开（跟随上游思考展开设置）
+7. 冷启动携带 toolNames（保持 UI 与后端工具一致，含 loadTools 对齐）
+8. 默认端口 30142 + Windows build 修复
 
 -----------------------------------------------------
 六、合并上游的流程建议
@@ -114,3 +121,24 @@
 4. node_modules 缺包时先问人工，不要自作主张重装整个
    依赖树。Windows 下 npm 清理遇 EPERM 会留下半删目录，
    进一步破坏 node_modules。
+
+-----------------------------------------------------
+八、v0.9.0 合并记录（2025/09，上游 0d1df12）
+-----------------------------------------------------
+被上游吸收、本地已删（下次合并勿再改）:
+    - thinking 默认展开 → 上游 #639 isThinkingExpandedByDefault 设置驱动
+      （本地 useDefaultExpanded 在 ThinkingBlock/ProcessDetailsGroup 的使用已删）
+    - thinking 内容缓存 → 上游 thinkingContentCache 等价实现
+    - 扩展组件分流 → 上游 ChatWindow 内联 ExtensionWidgets + above/below 分流
+    - 尾部（liveTail）自动展开 → 上游 #639 设置替代
+    - toolNames 命令通道 → 上游 agent/[id]/route.ts 已支持
+    - 消息显示拆分（splitFinalAssistantBlocks/isMessageGroupAnchor）→
+      上游 lib/message-display.ts 实现
+保留的本地独有（上游未实现，见第五节）:
+    跟随按钮、用量格式、老对话用量、思考内联/防闪烁细节、
+    编辑工具默认展开、冷启动 toolNames（events 路径）、端口/Windows 修复
+
+下次合并 v0.9.x 时注意：
+    - 上游 MessageView/ChatWindow 已重构（searchBlock/ProcessDetailsGroup/processViews），
+      本地桥接行尽量压在函数体 2-3 行内
+    - 若上游新增依赖（xterm/node-pty/semver 等），缺包时先问人工再 npm install
