@@ -60,7 +60,8 @@
     lib/zmhuanf/scroll-anchor.ts      二次布局后贴底 + 锚点撑高保留
     lib/zmhuanf/thinking-inline.ts    最后一条思考内联判定
     components/zmhuanf/FollowButton.tsx
-    bin/zmhuanf/ssh-launcher.js      SSH 启动包装（npm run start -- --ssh 摘参 → PI_WEB_SSH）
+    bin/zmhuanf/ssh-launcher.js      SSH 启动包装（npm run start -- --ssh/--pass 摘参 →
+                                     PI_WEB_SSH / PI_WEB_SSH_PASSWORD）
 
 上游文件的桥接（合并冲突高发区，按风险排序；均为「import + 少行调用」）：
     hooks/useAgentSession.ts         跟随状态+toggleFollow、同构 layoutEffect、
@@ -92,9 +93,11 @@
 6. 编辑工具默认展开（跟随上游思考展开设置）
 7. 冷启动携带 toolNames（保持 UI 与后端工具一致，含 loadTools 对齐）
 8. 默认端口 30142 + Windows build 修复
-9. SSH 远程模式：npm run start -- --ssh user@host[:/path]；启动包装摘参注入
-   PI_WEB_SSH，~/.pi/agent/extensions/ssh.ts 在 session_start 读取实现
-   read/write/edit/bash 远程化（改扩展时注意保持 pi CLI 兼容）
+9. SSH 远程模式：npm run start -- --ssh user@host[:/remote/path|:<port>] [--pass 密码]；
+   启动包装摘参注入 PI_WEB_SSH / PI_WEB_SSH_PASSWORD，~/.pi/agent/extensions/ssh.ts
+   在 session_start 读取实现 read/write/edit/bash 远程化（冒号后纯数字视为端口
+   （非 / 开头），密码认证走 plink -pw（sshpass/askpass 在无 tty 下不可用），
+   首次连接自动提取 hostkey 指纹缓存，改扩展时注意保持 pi CLI 兼容）
 
 -----------------------------------------------------
 六、合并上游的流程建议
