@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 "use strict";
 
-// 本地定制：让 `npm run start -- --ssh user@host[:/path] [--pass 密码]` 与 pi CLI 心智一致
-// 摘出 --ssh 目标（注入 PI_WEB_SSH）与 --pass 密码（注入 PI_WEB_SSH_PASSWORD），
-// 其余参数原样透传给上游 bin/pi-web.js；放在 bin/zmhuanf/ 命名空间内，保证与上游合并零冲突
+// 本地定制：让 `npm run start -- --ssh user@host[:/path] [--pass 密码] [--proxy 地址]` 与 pi CLI 心智一致
+// 摘出本地参数注入环境变量，其余参数原样透传给上游 bin/pi-web.js
+// 放在 bin/zmhuanf/ 命名空间内，保证与上游合并零冲突
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { spawn, spawnSync } = require("node:child_process");
@@ -16,6 +16,7 @@ const { wireChildProcessLifecycle } = require("../process-lifecycle");
 
 const SSH_FLAG = "--ssh";
 const PASS_FLAG = "--pass";
+const PROXY_FLAG = "--proxy";
 const SSH_ENV = "PI_WEB_SSH";
 const PASS_ENV = "PI_WEB_SSH_PASSWORD";
 
@@ -35,6 +36,7 @@ function parseSshArgs(args) {
   const rest = [];
   let ssh;
   let pass;
+  let proxy;
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === SSH_FLAG) {
@@ -65,9 +67,22 @@ function parseSshArgs(args) {
       pass = value;
       continue;
     }
+    if (arg === PROXY_FLAG) {
+      proxy = flagValue(PROXY_FLAG, args, i);
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith(`${PROXY_FLAG}=`)) {
+      const value = arg.slice(PROXY_FLAG.length + 1);
+      if (!value) {
+        throw new Error(`${PROXY_FLAG} requires a value`);
+      }
+      proxy = value;
+      continue;
+    }
     rest.push(arg);
   }
-  return { ssh, pass, rest };
+  return { ssh, pass, proxy, rest };
 }
 
 function fail(message) {
@@ -99,9 +114,10 @@ function findPlink() {
 
 let ssh;
 let pass;
+let proxy;
 let rest;
 try {
-  ({ ssh, pass, rest } = parseSshArgs(process.argv.slice(2)));
+  ({ ssh, pass, proxy, rest } = parseSshArgs(process.argv.slice(2)));
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error));
 }
@@ -125,6 +141,12 @@ const child = spawn(process.execPath, [piWebBin, ...rest], {
     ...process.env,
     ...(ssh ? { [SSH_ENV]: ssh } : {}),
     ...(pass ? { [PASS_ENV]: pass } : {}),
+    ...(proxy ? {
+      HTTP_PROXY: proxy,
+      HTTPS_PROXY: proxy,
+      http_proxy: proxy,
+      https_proxy: proxy,
+    } : {}),
   },
 });
 wireChildProcessLifecycle(child);
@@ -136,4 +158,7 @@ if (ssh) {
 if (pass) {
   // 提示密码认证已激活（ssh.ts 经 plink -pw 用 PI_WEB_SSH_PASSWORD）
   console.log("[pi-web] SSH password auth enabled (PI_WEB_SSH_PASSWORD)");
+}
+if (proxy) {
+  console.log("[pi-web] HTTP proxy enabled");
 }
