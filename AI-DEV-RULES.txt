@@ -110,6 +110,10 @@
 4. 合并后：跑 tsc --noEmit 确认类型，测试允许不全绿
 5. 推送用 git push origin main（可能需要 --force 仅限
    明确要求时，正常情况用普通 push）
+6. 不要 force 覆盖 origin/agegr-main：它保存着 2026-08 的 16 个旧定制提交
+   （自研滚动/折叠/显示优化，作者 yefengfeng），与本地 agegr-main
+   （纯上游快照分支）不是同一条线。本地 agegr-main 只用来 fetch 上游 main，
+   不推送、不 checkout
 
 -----------------------------------------------------
 七、依赖安装红线（AI 别再弄坏本地环境）
@@ -148,3 +152,52 @@
     - 上游 MessageView/ChatWindow 已重构（searchBlock/ProcessDetailsGroup/processViews），
       本地桥接行尽量压在函数体 2-3 行内
     - 若上游新增依赖（xterm/node-pty/semver 等），缺包时先问人工再 npm install
+
+-----------------------------------------------------
+九、v0.9.1 合并记录（2026/09/21，上游 1eb5e66）
+-----------------------------------------------------
+本次结果：
+    - agegr-main：8366762（v0.9.1）→ 1eb5e66，快进 45 提交
+    - main：9ab313e（Merge branch 'agegr-main'）
+    - 上游实际新增 36 提交（112 文件 +4386/-811），无新依赖
+    - 冲突仅 3 文件：hooks/useAgentSession.ts、components/ChatWindow.tsx、
+      components/MessageView.tsx
+    - 自动合并：AppShell.tsx、ChatInput.tsx、session-reader.ts、models-cache.ts、
+      i18n、package.json、agent/[id]/route.ts、events 与 state 路由
+    - 合并后 git diff upstream/main = 24 文件（下方清单）
+
+冲突解法（下次同类直接照抄）：
+    - hooks 状态：本地 useState<ToolPreset>(DEFAULT_TOOL_PRESET) 压上游 "default"，
+      上游新增 state（newSessionThinkingLevel 等）全采纳；上游已删本地
+      thinkingLevel state，勿再恢复
+    - hooks 滚动回调：本地 setFollowState 行与上游 shouldShowScrollToLatest 行共存
+    - ChatWindow：本地 follow props 与上游 onOpenFile(filePath, page?) 合并，
+      解构写成 following, toggleFollow, showScrollToBottom,
+    - MessageView 工具卡：useState(defaultExpanded || isToolCallExpanded(id))，
+      本地默认展开只做初值，上游 toggleExpanded 持久化逻辑整体保留
+
+固定流程（逐条执行）：
+    1. git fetch https://github.com/agegr/pi-web.git main:agegr-main
+    2. git switch main 然后 git merge --no-ff agegr-main -m "Merge branch 'agegr-main'"
+    3. 冲突按上面解法处理，zmhuanf/ 目录永远全选本地
+       （.git/config 已开 rerere.enabled=true，重复冲突会自动套用上次解法）
+    4. node_modules/.bin/tsc --noEmit
+    5. git diff --stat upstream/main 对照下方清单，多出的文件=桥接被覆盖或本地误改
+    6. git push origin main
+
+git diff --stat upstream/main 预期清单（24 文件）：
+    AI-DEV-RULES.txt、app/api/agent/[id]/route.ts、app/api/agent/[id]/events/route.ts、
+    app/api/sessions/[id]/state/route.ts、bin/pi-web-options.js、bin/zmhuanf/ssh-launcher.js、
+    components/AppShell.mobile-toolbar.test.mjs、components/AppShell.tsx、
+    components/ChatInput.tsx、components/ChatWindow.tsx、components/MessageView.tsx、
+    components/zmhuanf/FollowButton.tsx、hooks/useAgentSession.ts、
+    lib/i18n/messages/en.ts、lib/i18n/messages/zh-CN.ts、lib/models-cache.ts、
+    lib/session-reader.ts、lib/tool-preset-preference.ts、lib/zmhuanf/context-usage.ts、
+    lib/zmhuanf/preferences.ts、lib/zmhuanf/scroll-anchor.ts、lib/zmhuanf/thinking-inline.ts、
+    package-lock.json、package.json
+
+遗留不一致（本地既存，不是某次合并引入，改前先问人工）：
+    - components/AppShell.mobile-toolbar.test.mjs 改了上游断言
+      （mobileContextText = desktopContextText），与第三节「禁止改上游测试」冲突
+    - package-lock.json 用 npmmirror 源、devDeps 版本范围高于上游
+    - node_modules/next 为 16.3.1，而 package.json 已要求 16.3.5（未重装）
