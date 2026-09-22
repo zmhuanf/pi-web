@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import lockfile from "proper-lockfile";
+import { isSshSession } from "./zmhuanf/ssh-session";
 
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write"];
 const SHELL_TOOLS = new Set(["bash", "powershell"]);
@@ -37,6 +38,7 @@ export function resolveShellTools(
   defaultTools: readonly string[] | undefined,
   platform: NodeJS.Platform = process.platform,
 ): string[] {
+  if (isSshSession()) return replaceShellTool(toolNames, false);
   return replaceShellTool(toolNames, isPowerShellToolEnabled(defaultTools, platform));
 }
 
