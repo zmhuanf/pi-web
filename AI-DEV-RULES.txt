@@ -200,4 +200,55 @@ git diff --stat upstream/main 预期清单（24 文件）：
     - components/AppShell.mobile-toolbar.test.mjs 改了上游断言
       （mobileContextText = desktopContextText），与第三节「禁止改上游测试」冲突
     - package-lock.json 用 npmmirror 源、devDeps 版本范围高于上游
-    - node_modules/next 为 16.3.1，而 package.json 已要求 16.3.5（未重装）
+
+-----------------------------------------------------
+十、v0.9.2 合并记录（2026/09/23，上游 040fadd / tag v0.9.2）
+-----------------------------------------------------
+本次结果：
+    - agegr-main：1eb5e66 → 040fadd，快进 15 提交
+    - main：aa1d3a3（Merge branch 'agegr-main'）
+    - 上游 101 文件 +7729/-1554；pi SDK 0.85.1 → 0.87.0（本次必须装依赖）
+    - 冲突 3 文件：components/ChatInput.tsx、hooks/useAgentSession.ts、
+      lib/tool-preset-preference.ts；AppShell/ChatWindow/session-reader/i18n/
+      package.json/lock/events 路由均为自动合并
+
+冲突主因：上游 #700 新增 configured 预设（默认值，未显式选择就跟随
+settings.json 的 defaultTools），正面撞上本地「默认 full 且强制对齐后端」。
+解法（本地 full 保留，上游 configured 入口照收）：
+    - tool-preset-preference：三处 fallback 全用 DEFAULT_TOOL_PRESET
+    - useAgentSession：state 初值与 loadContext 未 pin 分支都用 DEFAULT_TOOL_PRESET
+    - loadTools：`toolPreset !== CONFIGURED_TOOL_PRESET && actual !== toolPreset`
+      才强制 set_tools；configured 必须跳过，否则 toolNames=undefined 会触发
+      服务端重建再走对齐，成死循环
+    - ChatInput：`?? DEFAULT_TOOL_PRESET`，上游 configured 选项与文案不动
+
+固定流程：
+    1. git fetch https://github.com/agegr/pi-web.git main:agegr-main
+    2. git switch main 然后 git merge --no-ff agegr-main -m "Merge branch 'agegr-main'"
+    3. 冲突按上面解法，zmhuanf/ 目录永远全选本地（rerere 已开）
+    4. 上游动了 package.json 依赖才 npm install --include=dev
+    5. node_modules/.bin/tsc --noEmit
+    6. git diff --stat 040fadd 对照下方清单，多出的文件=桥接被覆盖或本地误改
+    7. git push origin main
+
+git diff --stat 040fadd 预期清单（26 文件）：
+    AI-DEV-RULES.txt、app/api/agent/[id]/route.ts、
+    app/api/agent/[id]/events/route.ts、app/api/sessions/[id]/state/route.ts、
+    bin/pi-web-options.js、bin/zmhuanf/ssh-launcher.js、
+    components/AppShell.mobile-toolbar.test.mjs、components/AppShell.tsx、
+    components/ChatInput.tsx、components/ChatWindow.tsx、components/MessageView.tsx、
+    components/zmhuanf/FollowButton.tsx、hooks/useAgentSession.ts、
+    lib/i18n/messages/en.ts、lib/i18n/messages/zh-CN.ts、lib/models-cache.ts、
+    lib/powershell-settings.ts、lib/session-reader.ts、lib/tool-preset-preference.ts、
+    lib/zmhuanf/context-usage.ts、lib/zmhuanf/preferences.ts、
+    lib/zmhuanf/scroll-anchor.ts、lib/zmhuanf/ssh-session.ts、
+    lib/zmhuanf/thinking-inline.ts、package-lock.json、package.json
+
+预期失败（本地故意偏离上游实现，按第三节不改断言）：
+    hooks/useAgentSession.test.mjs:139、:167 断言上游 configured 实现字符串
+
+合并后遗留（都不是本次合并引入）：
+    - handleToolPresetChange 末尾用它自己闭包里的旧 toolPreset 调 loadTools，
+      切换预设后可能被强制对齐回旧值，选 none/configured 会被覆盖
+    - npm install 后残留 node_modules/@earendil-works/.pi-coding-agent-1nx88yLL
+      （Windows EPERM 半删目录，待清理）
