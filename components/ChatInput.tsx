@@ -96,9 +96,11 @@ export interface ChatInputHandle {
   restoreSubmission: (text: string, images?: ChatDraftImage[], targetDraftKey?: string) => void;
 }
 
-const TOOL_PRESETS = ["chat-only", "read-only", "default", "full"] as const;
+// "configured" sends no override, so the session follows settings.json defaultTools.
+const TOOL_PRESETS = ["configured", "chat-only", "read-only", "default", "full"] as const;
 type ToolPresetLabel = typeof TOOL_PRESETS[number];
 const TOOL_PRESET_MAP: Record<ToolPresetLabel, ToolPreset> = {
+  configured: "configured",
   "chat-only": "none",
   "read-only": "read-only",
   default: "default",
@@ -2542,7 +2544,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       const preset = TOOL_PRESET_MAP[lvl];
                       const isActive = (toolPreset ?? DEFAULT_TOOL_PRESET) === preset;
                       let desc: string;
-                      if (lvl === "chat-only") desc = t("chat.chatOnly");
+                      if (lvl === "configured") desc = t("chat.configuredTools");
+                      else if (lvl === "chat-only") desc = t("chat.chatOnly");
                       else if (lvl === "read-only") desc = t("chat.readOnlyTools", { count: 4 });
                       else if (lvl === "default") desc = t("chat.builtInTools", { count: 4 });
                       else desc = t("chat.allBuiltInTools");

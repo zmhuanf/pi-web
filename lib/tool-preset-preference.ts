@@ -17,6 +17,11 @@ function getBrowserStorage(): StorageLike | null {
   }
 }
 
+/**
+ * Only an explicit pick from the tool dropdown is ever stored, so a missing value
+ * means "never chose". Those users start from the local default preset
+ * (lib/zmhuanf/preferences.ts) instead of upstream's settings-following preset.
+ */
 export function getPreferredToolPreset(
   storage: StorageLike | null = getBrowserStorage(),
 ): ToolPreset {

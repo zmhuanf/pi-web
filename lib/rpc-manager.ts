@@ -42,7 +42,9 @@ import { createSubagentController } from "./subagent-runtime";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
+import { createExactSystemPromptExtension } from "./exact-system-prompt";
 import {
+  appendClearedSessionToolSelection,
   appendSessionToolSelection,
   readSessionToolSelection,
   validateSessionToolSelection,
@@ -254,8 +256,6 @@ export class AgentSessionWrapper {
     this.chatOnly = options.chatOnly ?? false;
     this.onAgentRunComplete = options.onAgentRunComplete;
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
-    this.installExactSystemPromptContinuation();
-    this.applyExactSystemPrompt();
   }
 
   get sessionId(): string {
@@ -352,10 +352,7 @@ export class AgentSessionWrapper {
   }
 
   private ensureExtensionsBound(): Promise<void> {
-    if (this.extensionsBound) {
-      this.applyExactSystemPrompt();
-      return Promise.resolve();
-    }
+    if (this.extensionsBound) return Promise.resolve();
     if (this.extensionBindingPromise) return this.extensionBindingPromise;
 
     this.extensionBindingError = null;
@@ -392,7 +389,6 @@ export class AgentSessionWrapper {
         this.inner.extensionRunner.setUIContext?.(uiContext, "rpc");
       }
       this.extensionsBound = true;
-      this.applyExactSystemPrompt();
       console.log(`[pi-web] session_start dispatched to extensions for session ${this.inner.sessionId}`);
     })().catch((err) => {
       this.extensionBindingError = err;
@@ -431,29 +427,8 @@ export class AgentSessionWrapper {
     }
   }
 
-  private applyExactSystemPrompt(): void {
-    if (!this.exactSystemPrompt || !this.inner.agent.state) return;
-    this.inner.agent.state.systemPrompt = this.exactSystemPrompt();
-  }
-
-  private installExactSystemPromptContinuation(): void {
-    if (!this.exactSystemPrompt) return;
-    const previous = this.inner.agent.prepareNextTurnWithContext;
-    this.inner.agent.prepareNextTurnWithContext = async (turn, signal) => {
-      const prepared = await previous?.(turn, signal);
-      return {
-        ...prepared,
-        context: {
-          ...(prepared?.context ?? turn.context),
-          systemPrompt: this.exactSystemPrompt!(),
-        },
-      };
-    };
-  }
-
   setActiveToolSelection(toolNames: string[]): void {
     this.inner.setActiveToolsByName(withExtensionTools(this.inner, toolNames));
-    this.applyExactSystemPrompt();
   }
 
   private emit(event: AgentEvent): void {
@@ -642,10 +617,7 @@ export class AgentSessionWrapper {
               // Match pi's RPC contract: acknowledge only after synchronous prompt
               // validation and extension preflight have accepted the submission.
               preflightResult: (success) => {
-                if (success) {
-                  this.applyExactSystemPrompt();
-                  acceptPreflight();
-                }
+                if (success) acceptPreflight();
               },
             });
           } catch (error) {
@@ -719,7 +691,9 @@ export class AgentSessionWrapper {
           contextUsage: contextUsage
             ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
             : null,
-          systemPrompt: this.inner.agent.state?.systemPrompt ?? "",
+          // An exact prompt is projected onto each run by the inline extension;
+          // the SDK state only shows Pi's structured sections.
+          systemPrompt: this.exactSystemPrompt?.() ?? this.inner.agent.state?.systemPrompt ?? "",
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
@@ -971,7 +945,6 @@ export class AgentSessionWrapper {
         if (typeof this.inner.bindExtensions !== "function") {
           this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
         }
-        this.applyExactSystemPrompt();
         invalidateModelsCache();
         return { success: true };
       }
@@ -1662,7 +1635,6 @@ export class AgentSessionWrapper {
             this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
           },
         });
-        this.applyExactSystemPrompt();
       },
     };
   }
@@ -1781,13 +1753,20 @@ export interface SetRpcSessionToolsResult {
   recreated: boolean;
 }
 
-/** Persist a normal session's tool selection and rebuild when resource policy changes. */
+/**
+ * Persist a normal session's tool selection and rebuild when resource policy changes.
+ * An undefined requestedToolNames returns the session to pi's configured defaults:
+ * the pin is retracted and the session is rebuilt, because the loadout that
+ * settings.json defaultTools resolves to is only known once pi builds the session.
+ */
 export async function setRpcSessionTools(
   sessionId: string,
   sessionFile: string | undefined,
   requestedToolNames: unknown,
 ): Promise<SetRpcSessionToolsResult> {
-  const toolNames = validateSessionToolSelection(requestedToolNames);
+  const toolNames = requestedToolNames === undefined
+    ? undefined
+    : validateSessionToolSelection(requestedToolNames);
   const existing = getRpcSession(sessionId);
 
   if (!existing?.isAlive()) {
@@ -1796,7 +1775,8 @@ export async function setRpcSessionTools(
     if (readSubagentSessionResources(manager.getEntries() as unknown as SessionEntry[])) {
       throw new Error("Subagent tool selection is fixed by its profile");
     }
-    appendSessionToolSelection(manager, toolNames);
+    if (toolNames === undefined) appendClearedSessionToolSelection(manager);
+    else appendSessionToolSelection(manager, toolNames);
     invalidateSessionListCache();
     const started = await startRpcSession(sessionId, sessionFile, undefined);
     return { session: started.session, sessionId: started.realSessionId, recreated: false };
@@ -1809,12 +1789,14 @@ export async function setRpcSessionTools(
 
   const hasCurrentResourcePolicy = typeof existing.isChatOnly === "function"
     && typeof existing.setActiveToolSelection === "function";
-  const crossesChatOnlyBoundary = !hasCurrentResourcePolicy
+  const crossesChatOnlyBoundary = toolNames === undefined
+    || !hasCurrentResourcePolicy
     || existing.isChatOnly() !== (toolNames.length === 0);
-  appendSessionToolSelection(existing.inner.sessionManager, toolNames);
+  if (toolNames === undefined) appendClearedSessionToolSelection(existing.inner.sessionManager);
+  else appendSessionToolSelection(existing.inner.sessionManager, toolNames);
   invalidateSessionListCache();
 
-  if (!crossesChatOnlyBoundary) {
+  if (toolNames !== undefined && !crossesChatOnlyBoundary) {
     existing.setActiveToolSelection(toolNames);
     return { session: existing, sessionId, recreated: false };
   }
@@ -1833,7 +1815,7 @@ export async function setRpcSessionTools(
   }
 
   const started = await startRpcSession(`__recreate__${randomUUID()}`, "", sessionCwd, {
-    toolNames,
+    ...(toolNames !== undefined ? { toolNames } : {}),
     ...(model ? { initialModel: { provider: model.provider, modelId: model.id } } : {}),
     allowInitialModelFallback: true,
     ...(currentThinkingLevel && THINKING_LEVEL_NAMES.has(currentThinkingLevel as ThinkingLevel)
@@ -2038,6 +2020,13 @@ export async function startRpcSession(
         ? undefined
         : projectTrustReloadOptions(sessionCwd, agentDir);
     const settingsManager = SettingsManager.create(sessionCwd, agentDir);
+    // Chat-only sessions and subagents that replace Pi's prompt send an exact
+    // system prompt. The prompt is resolved at prompt time through this inline
+    // extension: it may read the session's context files, which exist only
+    // after the session is created, so the getter is filled in below.
+    const exactSystemPromptRef: { current?: () => string } = {};
+    const exactSystemPromptExtension = createExactSystemPromptExtension(() => exactSystemPromptRef.current?.());
+    const usesExactSystemPrompt = chatOnly || subagentResources?.exactSystemPrompt !== undefined;
     const services = await createAgentSessionServices({
       cwd: sessionCwd,
       agentDir,
@@ -2056,9 +2045,10 @@ export async function startRpcSession(
                 }
               : {}),
             appendSystemPrompt: subagentResources.appendSystemPrompt,
+            ...(usesExactSystemPrompt ? { extensionFactories: [exactSystemPromptExtension] } : {}),
           }
         : chatOnly
-          ? CHAT_ONLY_RESOURCE_LOADER_OPTIONS
+          ? { ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS, extensionFactories: [exactSystemPromptExtension] }
         : {
             extensionFactories: [
               createProjectCommandBashExtension({
@@ -2088,7 +2078,8 @@ export async function startRpcSession(
     const defaultProvider = services.settingsManager.getDefaultProvider();
     const defaultModelId = services.settingsManager.getDefaultModel();
     const branch = sessionManager.getBranch();
-    const hasExistingMessages = branch.some((entry) => entry.type === "message");
+    // System messages carry the prompt and tool loadout, not a conversation.
+    const hasExistingMessages = branch.some((entry) => entry.type === "message" && entry.message.role !== "system");
     const savedModel = hasExistingMessages
       ? getLatestModelChange(branch as unknown as SessionEntry[])
       : null;
@@ -2145,6 +2136,7 @@ export async function startRpcSession(
           ? () => subagentResources.appendSystemPrompt[0] ?? ""
           : () => contextFilesSystemPrompt(inner.resourceLoader.getAgentsFiles().agentsFiles)
         : undefined;
+    exactSystemPromptRef.current = exactSystemPrompt;
     const wrapper = new AgentSessionWrapper(inner, {
       exactSystemPrompt,
       chatOnly,
