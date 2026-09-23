@@ -78,9 +78,7 @@
 -----------------------------------------------------
 五、本地定制功能清单（改坏前先确认需求）
 -----------------------------------------------------
-（v0.9.0 合并后现状：上游已吸收项在第八节标注，以下仅列出本地独有。
-  「默认工具预设 = full」已于 v0.9.2 移除，改由 ~/.pi/agent/settings.json 的
-  defaultTools 提供，见第十节）
+（本节仅列出本地独有的定制；默认工具预设已交回上游，见第十节）
 1. 右上角用量显示「已用 / 上限」格式（AppShell）
 2. 老对话也有用量信息（context-usage.ts + state 路由）
 3. 跟随按钮（FollowButton + AppShell/ChatWindow/useAgentSession 桥接）
@@ -128,27 +126,6 @@
    进一步破坏 node_modules。
 
 -----------------------------------------------------
-八、v0.9.0 合并记录（2025/09，上游 0d1df12）
------------------------------------------------------
-被上游吸收、本地已删（下次合并勿再改）:
-    - thinking 默认展开 → 上游 #639 isThinkingExpandedByDefault 设置驱动
-      （本地 useDefaultExpanded 在 ThinkingBlock/ProcessDetailsGroup 的使用已删）
-    - thinking 内容缓存 → 上游 thinkingContentCache 等价实现
-    - 扩展组件分流 → 上游 ChatWindow 内联 ExtensionWidgets + above/below 分流
-    - 尾部（liveTail）自动展开 → 上游 #639 设置替代
-    - toolNames 命令通道 → 上游 agent/[id]/route.ts 已支持
-    - 消息显示拆分（splitFinalAssistantBlocks/isMessageGroupAnchor）→
-      上游 lib/message-display.ts 实现
-保留的本地独有（上游未实现，见第五节）:
-    跟随按钮、用量格式、老对话用量、思考内联/防闪烁细节、
-    编辑工具默认展开、冷启动 toolNames（events 路径）、端口/Windows 修复
-
-下次合并 v0.9.x 时注意：
-    - 上游 MessageView/ChatWindow 已重构（searchBlock/ProcessDetailsGroup/processViews），
-      本地桥接行尽量压在函数体 2-3 行内
-    - 若上游新增依赖（xterm/node-pty/semver 等），缺包时先问人工再 npm install
-
------------------------------------------------------
 九、v0.9.1 合并记录（2026/09/21，上游 1eb5e66）
 -----------------------------------------------------
 本次结果：
@@ -162,7 +139,8 @@
     - 合并后 git diff upstream/main = 24 文件（下方清单）
 
 冲突解法（下次同类直接照抄）：
-    - hooks 状态：本地 useState<ToolPreset>(DEFAULT_TOOL_PRESET) 压上游 "default"，
+    - hooks 状态：本地旧的 useState<ToolPreset>(DEFAULT_TOOL_PRESET) 已不存在
+      （v0.9.2 移除，见第十节），现在沿用上游 CONFIGURED_TOOL_PRESET；
       上游新增 state（newSessionThinkingLevel 等）全采纳；上游已删本地
       thinkingLevel state，勿再恢复
     - hooks 滚动回调：本地 setFollowState 行与上游 shouldShowScrollToLatest 行共存
@@ -177,19 +155,8 @@
     3. 冲突按上面解法处理，zmhuanf/ 目录永远全选本地
        （.git/config 已开 rerere.enabled=true，重复冲突会自动套用上次解法）
     4. node_modules/.bin/tsc --noEmit
-    5. git diff --stat upstream/main 对照下方清单，多出的文件=桥接被覆盖或本地误改
+    5. git diff --stat 上游基线 对照第十节清单，多出的文件=桥接被覆盖或本地误改
     6. git push origin main
-
-git diff --stat upstream/main 预期清单（24 文件）：
-    AI-DEV-RULES.txt、app/api/agent/[id]/route.ts、app/api/agent/[id]/events/route.ts、
-    app/api/sessions/[id]/state/route.ts、bin/pi-web-options.js、bin/zmhuanf/ssh-launcher.js、
-    components/AppShell.mobile-toolbar.test.mjs、components/AppShell.tsx、
-    components/ChatInput.tsx、components/ChatWindow.tsx、components/MessageView.tsx、
-    components/zmhuanf/FollowButton.tsx、hooks/useAgentSession.ts、
-    lib/i18n/messages/en.ts、lib/i18n/messages/zh-CN.ts、lib/models-cache.ts、
-    lib/session-reader.ts、lib/tool-preset-preference.ts、lib/zmhuanf/context-usage.ts、
-    lib/zmhuanf/preferences.ts、lib/zmhuanf/scroll-anchor.ts、lib/zmhuanf/thinking-inline.ts、
-    package-lock.json、package.json
 
 遗留不一致（本地既存，不是某次合并引入，改前先问人工）：
     - components/AppShell.mobile-toolbar.test.mjs 改了上游断言
