@@ -17,7 +17,7 @@ import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AnsiText } from "./AnsiText";
 import { useI18n } from "@/hooks/useI18n";
 import { phaseLabel } from "@/lib/chat-phase-label";
-import { useAgentSession, type NoticeItem } from "@/hooks/useAgentSession";
+import { useAgentSession, type AttachedImage, type NoticeItem } from "@/hooks/useAgentSession";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
@@ -299,6 +299,16 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     followControlRef.current = { toggle: toggleFollow };
     return () => { followControlRef.current = null; };
   }, [followControlRef, toggleFollow]);
+  // 桥接：本次打开会话期间出现过实时输出，则最后一轮处理详情保持展开；重新打开历史会话仍折叠
+  const tailWasActiveRef = useRef(false);
+  // 桥接：发送瞬间就置位，避免极快结束的一轮 effect 观察不到运行状态而被误折叠
+  const handleSendWithTail = useCallback((message: string, images?: AttachedImage[]) => {
+    tailWasActiveRef.current = true;
+    void handleSend(message, images);
+  }, [handleSend]);
+  useEffect(() => {
+    if (sessionBusy || streamState.isStreaming) tailWasActiveRef.current = true;
+  }, [sessionBusy, streamState.isStreaming]);
   const [quotedSelection, setQuotedSelection] = useState<{
     text: string;
     top: number;
@@ -862,7 +872,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const chatInputElement = (
     <ChatInput
       ref={chatInputRef}
-      onSend={handleSend}
+      onSend={handleSendWithTail}
       onAbort={handleAbort}
       onSteer={agentRunning ? handleSteer : undefined}
       onFollowUp={agentRunning ? handleFollowUp : undefined}
@@ -1013,6 +1023,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               for (let i = messages.length - 1; i >= 0; i--) {
                 if (isMessageGroupAnchor(messages[i])) { lastAnchorIdx = i; break; }
               }
+              // 桥接：实时输出过则最后一轮处理详情默认展开，历史轮保持折叠
+              const liveTailActive = tailWasActiveRef.current || sessionBusy || streamState.isStreaming;
 
               const visibleRefIndexByMessage = new Map<number, number>();
               let refIdx = 0;
@@ -1169,7 +1181,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                           would otherwise stay open once its answer shows up, e.g. when
                           switching between an answered and an unanswered leaf of the same
                           turn. Manual toggles survive every other re-render. */}
-                      <ProcessDetailsGroup key={finalAnswerMessage ? "answered" : "unanswered"} messageCount={processViews.length} toolCallCount={processToolCount} defaultExpanded={!finalAnswerMessage} reveal={revealProcess} t={t}>
+                      <ProcessDetailsGroup key={finalAnswerMessage ? "answered" : "unanswered"} messageCount={processViews.length} toolCallCount={processToolCount} defaultExpanded={!finalAnswerMessage || (liveTailActive && userIdx >= lastAnchorIdx)} reveal={revealProcess} t={t}>
                         {processViews}
                       </ProcessDetailsGroup>
                     </div>,

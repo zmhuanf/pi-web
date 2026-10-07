@@ -66,7 +66,10 @@
     hooks/useAgentSession.ts         跟随状态+toggleFollow、同构 layoutEffect、
                                      schedulePostLayoutBottomFix（~35 行）
     components/AppShell.tsx          跟随按钮 state/渲染 + 用量「已用/上限」格式（~30 行）
-    components/ChatWindow.tsx        跟随状态桥接（props+useEffect）+ retainAnchorSpacer（~20 行）
+    components/ChatWindow.tsx        跟随状态桥接（props+useEffect）+ retainAnchorSpacer +
+                                     最后一轮处理详情默认展开（tailWasActiveRef，~15 行；
+                                     上游 ChatWindow.process-details.test.mjs 两条
+                                     defaultExpanded 断言会因它变红，属允许范围）
     components/MessageView.tsx       编辑工具默认展开 2 行（用上游 isThinkingExpandedByDefault）
     lib/session-reader.ts            最后一条思考内联桥接（3 行）
     app/api/sessions/[id]/state/route.ts  老对话用量兑底
@@ -91,6 +94,9 @@
    在 session_start 读取实现 read/write/edit/bash 远程化（冒号后纯数字视为端口
    （非 / 开头），密码认证走 plink -pw（sshpass/askpass 在无 tty 下不可用），
    首次连接自动提取 hostkey 指纹缓存，改扩展时注意保持 pi CLI 兼容）
+8. 最后一轮处理详情（思考+工具调用）默认展开：本次打开会话期间出现过实时输出
+   才展开，重新打开历史会话仍折叠（ChatWindow tailWasActiveRef + liveTailActive +
+   ProcessDetailsGroup 的 defaultExpanded 条件，源自 ccfc8dd，v0.9.1 合并丢失后恢复）
 
 -----------------------------------------------------
 六、合并上游的流程建议
