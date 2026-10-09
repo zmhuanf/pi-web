@@ -20,11 +20,15 @@
 
     lib/zmhuanf/          服务端逻辑（估算、常量、工具函数）
     components/zmhuanf/   前端组件与 hooks
+    bin/zmhuanf/          启动脚本包装
 
 现有文件：
-    lib/zmhuanf/preferences.ts          所有默认值常量（如 DEFAULT_TOOL_PRESET="full"）
     lib/zmhuanf/context-usage.ts        老对话用量估算
+    lib/zmhuanf/scroll-anchor.ts        二次布局后贴底 + 锚点撑高保留
+    lib/zmhuanf/thinking-inline.ts      最后一条思考内联判定
+    lib/zmhuanf/ssh-session.ts          SSH 模式判定
     components/zmhuanf/FollowButton.tsx 顶部栏跟随按钮
+    bin/zmhuanf/ssh-launcher.js         start 包装
 
 新增定制时：
     - 逻辑、组件、hook 一律放 zmhuanf/ 目录
@@ -58,6 +62,7 @@
     lib/zmhuanf/context-usage.ts      老对话用量估算
     lib/zmhuanf/scroll-anchor.ts      二次布局后贴底 + 锚点撑高保留
     lib/zmhuanf/thinking-inline.ts    最后一条思考内联判定
+    lib/zmhuanf/ssh-session.ts        SSH 会话判定（powershell-settings 用）
     components/zmhuanf/FollowButton.tsx
     bin/zmhuanf/ssh-launcher.js      SSH 启动包装（npm run start -- --ssh/--pass 摘参 →
                                      PI_WEB_SSH / PI_WEB_SSH_PASSWORD）
@@ -73,15 +78,32 @@
     components/MessageView.tsx       编辑工具默认展开 2 行（用上游 isThinkingExpandedByDefault）
     lib/session-reader.ts            最后一条思考内联桥接（3 行）
     app/api/sessions/[id]/state/route.ts  老对话用量兑底
+    app/api/agent/[id]/route.ts      请求体 toolNames 类型（1 行）
     lib/models-cache.ts              用量缓存失效挂钩
+    lib/powershell-settings.ts       SSH 模式强制 bash
     lib/i18n/messages/en.ts zh-CN.ts 跟随按钮文案
+    bin/pi-web-options.js            默认端口 30142
     package.json                     端口 30142/Windows build 修复 + start 指向 ssh-launcher
                                      （保留上游 postinstall）
+
+核对基线：git diff --stat <上游 tag> 只应出现下面这 21 个文件，
+多出来=桥接被覆盖或本地误改，少掉=桥接被上游吃掉：
+
+    AI-DEV-RULES.txt、app/api/agent/[id]/route.ts、
+    app/api/sessions/[id]/state/route.ts、bin/pi-web-options.js、
+    bin/zmhuanf/ssh-launcher.js、components/AppShell.tsx、
+    components/ChatWindow.tsx、components/MessageView.tsx、
+    components/zmhuanf/FollowButton.tsx、hooks/useAgentSession.ts、
+    lib/i18n/messages/en.ts、lib/i18n/messages/zh-CN.ts、lib/models-cache.ts、
+    lib/powershell-settings.ts、lib/session-reader.ts、
+    lib/zmhuanf/context-usage.ts、lib/zmhuanf/scroll-anchor.ts、
+    lib/zmhuanf/ssh-session.ts、lib/zmhuanf/thinking-inline.ts、
+    package-lock.json、package.json
 
 -----------------------------------------------------
 五、本地定制功能清单（改坏前先确认需求）
 -----------------------------------------------------
-（本节仅列出本地独有的定制；默认工具预设已交回上游，见第十节）
+（本节仅列出本地独有的定制；默认工具预设已交回上游，见第八节）
 1. 右上角用量显示「已用 / 上限」格式（AppShell）
 2. 老对话也有用量信息（context-usage.ts + state 路由）
 3. 跟随按钮（FollowButton + AppShell/ChatWindow/useAgentSession 桥接）
@@ -96,23 +118,26 @@
    首次连接自动提取 hostkey 指纹缓存，改扩展时注意保持 pi CLI 兼容）
 8. 最后一轮处理详情（思考+工具调用）默认展开：本次打开会话期间出现过实时输出
    才展开，重新打开历史会话仍折叠（ChatWindow tailWasActiveRef + liveTailActive +
-   ProcessDetailsGroup 的 defaultExpanded 条件，源自 ccfc8dd，v0.9.1 合并丢失后恢复）
+   ProcessDetailsGroup 的 defaultExpanded 条件）
 
 -----------------------------------------------------
-六、合并上游的流程建议
+六、合并上游的固定流程
 -----------------------------------------------------
-1. 小步合并：频繁 rebase 上游，不要攒大量改动后一次性合并
-2. 合并前先读本清单第四节，知道哪些文件会撞
-3. 冲突解决原则：zmhuanf/ 目录永远全选本地；
-   上游文件的冲突逐 hunk 看，本地桥接尽量保留，
-   上游新逻辑优先，桥接行重新放回
-4. 合并后：跑 tsc --noEmit 确认类型，测试允许不全绿
-5. 推送用 git push origin main（可能需要 --force 仅限
-   明确要求时，正常情况用普通 push）
-6. 不要 force 覆盖 origin/agegr-main：它保存着 2026-08 的 16 个旧定制提交
-   （自研滚动/折叠/显示优化，作者 yefengfeng），与本地 agegr-main
-   （纯上游快照分支）不是同一条线。本地 agegr-main 只用来 fetch 上游 main，
-   不推送、不 checkout
+1. 小步合并：频繁合并上游，不要攒大量改动后一次性合并
+2. 合并前先读第四节清单，知道哪些文件会撞
+3. 冲突解决原则：zmhuanf/ 目录永远全选本地；上游文件的冲突逐 hunk 看，
+   本地桥接尽量保留，上游新逻辑优先，桥接行重新放回
+   （.git/config 已开 rerere.enabled=true，重复冲突自动套用上次解法）
+4. git fetch https://github.com/agegr/pi-web.git main:agegr-main
+5. git switch main 然后 git merge --no-ff agegr-main -m "Merge branch 'agegr-main'"
+6. 上游动了 package.json 依赖才 npm install --include=dev（见第七节）
+7. node_modules/.bin/tsc --noEmit；测试允许不全绿，不为修测试改实现
+8. git diff --stat <上游 tag> 对照第四节 21 文件清单
+9. git push origin main（普通 push；--force 仅限明确要求时）
+10. 不要 force 覆盖 origin/agegr-main：它保存着 2026-08 的 16 个旧定制提交
+    （自研滚动/折叠/显示优化，作者 yefengfeng），与本地 agegr-main
+    （纯上游快照分支）不是同一条线。本地 agegr-main 只用来 fetch 上游 main，
+    不推送、不 checkout
 
 -----------------------------------------------------
 七、依赖安装红线（AI 别再弄坏本地环境）
@@ -132,88 +157,20 @@
    进一步破坏 node_modules。
 
 -----------------------------------------------------
-九、v0.9.1 合并记录（2026/09/21，上游 1eb5e66）
+八、上游已移除的本地定制与环境前提
 -----------------------------------------------------
-本次结果：
-    - agegr-main：8366762（v0.9.1）→ 1eb5e66，快进 45 提交
-    - main：9ab313e（Merge branch 'agegr-main'）
-    - 上游实际新增 36 提交（112 文件 +4386/-811），无新依赖
-    - 冲突仅 3 文件：hooks/useAgentSession.ts、components/ChatWindow.tsx、
-      components/MessageView.tsx
-    - 自动合并：AppShell.tsx、ChatInput.tsx、session-reader.ts、models-cache.ts、
-      i18n、package.json、agent/[id]/route.ts、events 与 state 路由
-    - 合并后 git diff upstream/main = 24 文件（下方清单）
-
-冲突解法（下次同类直接照抄）：
-    - hooks 状态：本地旧的 useState<ToolPreset>(DEFAULT_TOOL_PRESET) 已不存在
-      （v0.9.2 移除，见第十节），现在沿用上游 CONFIGURED_TOOL_PRESET；
-      上游新增 state（newSessionThinkingLevel 等）全采纳；上游已删本地
-      thinkingLevel state，勿再恢复
-    - hooks 滚动回调：本地 setFollowState 行与上游 shouldShowScrollToLatest 行共存
-    - ChatWindow：本地 follow props 与上游 onOpenFile(filePath, page?) 合并，
-      解构写成 following, toggleFollow, showScrollToBottom,
-    - MessageView 工具卡：useState(defaultExpanded || isToolCallExpanded(id))，
-      本地默认展开只做初值，上游 toggleExpanded 持久化逻辑整体保留
-
-固定流程（逐条执行）：
-    1. git fetch https://github.com/agegr/pi-web.git main:agegr-main
-    2. git switch main 然后 git merge --no-ff agegr-main -m "Merge branch 'agegr-main'"
-    3. 冲突按上面解法处理，zmhuanf/ 目录永远全选本地
-       （.git/config 已开 rerere.enabled=true，重复冲突会自动套用上次解法）
-    4. node_modules/.bin/tsc --noEmit
-    5. git diff --stat 上游基线 对照第十节清单，多出的文件=桥接被覆盖或本地误改
-    6. git push origin main
-
-遗留不一致（本地既存，不是某次合并引入，改前先问人工）：
-    - components/AppShell.mobile-toolbar.test.mjs 改了上游断言
-      （mobileContextText = desktopContextText），与第三节「禁止改上游测试」冲突
-    - package-lock.json 用 npmmirror 源、devDeps 版本范围高于上游
-
------------------------------------------------------
-十、v0.9.2 合并记录（2026/09/23，上游 040fadd / tag v0.9.2）
------------------------------------------------------
-本次结果：
-    - agegr-main：1eb5e66 → 040fadd，快进 15 提交
-    - main：aa1d3a3（Merge branch 'agegr-main'）
-    - 上游 101 文件 +7729/-1554；pi SDK 0.85.1 → 0.87.0（本次必须装依赖）
-    - 冲突 3 文件：components/ChatInput.tsx、hooks/useAgentSession.ts、
-      lib/tool-preset-preference.ts；AppShell/ChatWindow/session-reader/i18n/
-      package.json/lock/events 路由均为自动合并
-
-冲突主因：上游 #700 新增 configured 预设（默认值，未显式选择就跟随
-settings.json 的 defaultTools），正面撞上本地「默认 full 且强制对齐后端」。
-
-人工决定（2026/09/23）：移除该本地定制，回归上游 configured：
-    - 删除 lib/zmhuanf/preferences.ts 与全部 DEFAULT_TOOL_PRESET 引用
-    - useAgentSession 的 state 初值/loadContext/loadTools 恢复上游写法
-      （顺带消除 loadTools 用旧 toolPreset 强制对齐、把用户选择弹回去的 bug）
-    - ChatInput、tool-preset-preference 恢复 040fadd 原样
-    - 删除 prompt/bash 附带的 toolNames 与 events 路由的冷启动 toolNames 参数
-    - 默认 full 改由 ~/.pi/agent/settings.json 提供：
-      defaultTools = ["read","powershell","edit","write","grep","find","ls"]
-      （新机器要重新配这条，否则新会话只有四个工具）
-
-固定流程：
-    1. git fetch https://github.com/agegr/pi-web.git main:agegr-main
-    2. git switch main 然后 git merge --no-ff agegr-main -m "Merge branch 'agegr-main'"
-    3. 冲突按上面解法，zmhuanf/ 目录永远全选本地（rerere 已开）
-    4. 上游动了 package.json 依赖才 npm install --include=dev
-    5. node_modules/.bin/tsc --noEmit
-    6. git diff --stat 040fadd 对照下方清单，多出的文件=桥接被覆盖或本地误改
-    7. git push origin main
-
-git diff --stat 040fadd 预期清单（22 文件）：
-    AI-DEV-RULES.txt、app/api/agent/[id]/route.ts、
-    app/api/sessions/[id]/state/route.ts、bin/pi-web-options.js、
-    bin/zmhuanf/ssh-launcher.js、components/AppShell.mobile-toolbar.test.mjs、
-    components/AppShell.tsx、components/ChatWindow.tsx、components/MessageView.tsx、
-    components/zmhuanf/FollowButton.tsx、hooks/useAgentSession.ts、
-    lib/i18n/messages/en.ts、lib/i18n/messages/zh-CN.ts、lib/models-cache.ts、
-    lib/powershell-settings.ts、lib/session-reader.ts、
-    lib/zmhuanf/context-usage.ts、lib/zmhuanf/scroll-anchor.ts、
-    lib/zmhuanf/ssh-session.ts、lib/zmhuanf/thinking-inline.ts、
-    package-lock.json、package.json
-
-合并后遗留：
-    - npm install 后残留 node_modules/@earendil-works/.pi-coding-agent-1nx88yLL
-      （Windows EPERM 半删目录，待清理）
+1. 默认工具预设：本地不再有 DEFAULT_TOOL_PRESET
+   （lib/zmhuanf/preferences.ts 已删），沿用上游 configured
+   （未显式选择就跟随 settings.json 的 defaultTools）。
+   默认 full 由 ~/.pi/agent/settings.json 提供：
+       defaultTools = ["read","powershell","edit","write","grep","find","ls"]
+   新机器要重配这条，否则新会话只有四个工具。
+2. useAgentSession 里上游已删掉本地 thinkingLevel state，勿再恢复；
+   state 初值/loadContext/loadTools 用上游写法，别再加「强制对齐后端」
+   的逻辑（那会把用户选择弹回去）。
+3. MessageView 工具卡：本地默认展开只做初值
+   useState(defaultExpanded || isToolCallExpanded(id))，
+   上游 toggleExpanded 持久化逻辑整体保留。
+4. package-lock.json 走 npmmirror 源，几个 devDeps 版本范围高于上游
+   （@types/react、@types/react-dom、mammoth、typescript），属本地既存，
+   改前先问人工。
