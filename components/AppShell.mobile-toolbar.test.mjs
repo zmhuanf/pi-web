@@ -91,7 +91,7 @@ test("prioritizes context and cost when the mobile statistics area narrows", () 
   assert.match(source, /\.mobile-session-stats \{[\s\S]*?container-type: inline-size/);
   assert.match(source, /@container \(max-width: 158px\)[\s\S]*?\.mobile-session-stat-io/);
   assert.match(source, /@container \(max-width: 88px\)[\s\S]*?\.mobile-session-stat-cost/);
-  assert.match(source, /mobileContextText = desktopContextText/);
+  assert.match(source, /mobileContextText = percent !== null \? `\$\{percent\.toFixed\(0\)\}%` : null/);
 });
 
 test("places trust warnings below the mobile toolbar and the file toggle in toolbar flow", () => {
@@ -108,4 +108,9 @@ test("closes top-bar dropdowns when the file panel expands to full width", () =>
   );
   assert.match(source, /onClick=\{handleRightPanelExpandToggle\}/);
   assert.match(source, /if \(rightPanelFullWidth\) setActiveTopPanel\(null\);/);
+});
+
+test("a sidebar pick closes the phone's drawer unless it asks to stay open (the sidebar's Fork)", () => {
+  assert.match(source, /const handleSelectSession = useCallback\(\(session: SessionInfo, isRestore = false, entryId\?: string, blockIndex\?: number, options\?: SelectSessionOptions\) => \{/);
+  assert.match(source, /if \(isMobile && !isRestore && !options\?\.keepSidebarOpen\) setSidebarOpen\(false\);/);
 });
