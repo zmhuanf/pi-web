@@ -68,13 +68,15 @@
                                      PI_WEB_SSH / PI_WEB_SSH_PASSWORD）
 
 上游文件的桥接（合并冲突高发区，按风险排序；均为「import + 少行调用」）：
-    hooks/useAgentSession.ts         跟随状态+toggleFollow、同构 layoutEffect、
-                                     schedulePostLayoutBottomFix（~35 行）
+    hooks/useAgentSession.ts         跟随状态+toggleFollow、
+                                     schedulePostLayoutBottomFix（~28 行）
     components/AppShell.tsx          跟随按钮 state/渲染 + 用量「已用/上限」格式（~30 行）
     components/ChatWindow.tsx        跟随状态桥接（props+useEffect）+ retainAnchorSpacer +
-                                     最后一轮处理详情默认展开（tailWasActiveRef，~15 行；
-                                     上游 ChatWindow.process-details.test.mjs 两条
-                                     defaultExpanded 断言会因它变红，属允许范围）
+                                     最后一轮处理详情默认展开（tailWasActiveRef）+
+                                     流式 paint 前同步贴底（handleStreamCommit 挂到上游
+                                     StreamingReply 的 onCommit，~38 行；上游改用
+                                     streamingStore 后 hook 里看不到每块流式更新，
+                                     这条只能在 ChatWindow 实现）
     components/MessageView.tsx       编辑工具默认展开 2 行（用上游 isThinkingExpandedByDefault）
     lib/session-reader.ts            最后一条思考内联桥接（3 行）
     app/api/sessions/[id]/state/route.ts  老对话用量兑底

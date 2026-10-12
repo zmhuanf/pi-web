@@ -2528,7 +2528,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         liveFollowFrameRef.current = null;
       }
     }
-  }, [scrollToBottom]);
+  }, [scrollToBottom, setFollowState]);
 
   // Load session on mount
   useEffect(() => {
