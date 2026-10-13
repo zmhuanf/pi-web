@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
-// 本地定制：让 `npm run start -- --ssh user@host[:/path] [--pass 密码] [--proxy 地址]` 与 pi CLI 心智一致
+// 本地定制：让 `npm run start -- --ssh user@host[:/path] [--pass 密码] [--proxy 地址] [--ps|--bash]` 与 pi CLI 心智一致
 // 摘出本地参数注入环境变量，其余参数原样透传给上游 bin/pi-web.js
 // 放在 bin/zmhuanf/ 命名空间内，保证与上游合并零冲突
 
@@ -17,8 +17,11 @@ const { wireChildProcessLifecycle } = require("../process-lifecycle");
 const SSH_FLAG = "--ssh";
 const PASS_FLAG = "--pass";
 const PROXY_FLAG = "--proxy";
+const PS_FLAG = "--ps";
+const BASH_FLAG = "--bash";
 const SSH_ENV = "PI_WEB_SSH";
 const PASS_ENV = "PI_WEB_SSH_PASSWORD";
+const SHELL_ENV = "PI_WEB_SSH_SHELL";
 
 function flagValue(flag, args, index) {
   const value = args[index + 1];
@@ -37,6 +40,7 @@ function parseSshArgs(args) {
   let ssh;
   let pass;
   let proxy;
+  let shell;
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === SSH_FLAG) {
@@ -80,9 +84,17 @@ function parseSshArgs(args) {
       proxy = value;
       continue;
     }
+    if (arg === PS_FLAG || arg === BASH_FLAG) {
+      const next = arg === PS_FLAG ? "powershell" : "bash";
+      if (shell !== undefined && shell !== next) {
+        throw new Error(`${PS_FLAG} 与 ${BASH_FLAG} 不能同时使用`);
+      }
+      shell = next;
+      continue;
+    }
     rest.push(arg);
   }
-  return { ssh, pass, proxy, rest };
+  return { ssh, pass, proxy, shell, rest };
 }
 
 function fail(message) {
@@ -115,11 +127,16 @@ function findPlink() {
 let ssh;
 let pass;
 let proxy;
+let shell;
 let rest;
 try {
-  ({ ssh, pass, proxy, rest } = parseSshArgs(process.argv.slice(2)));
+  ({ ssh, pass, proxy, shell, rest } = parseSshArgs(process.argv.slice(2)));
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error));
+}
+
+if (shell && !ssh) {
+  fail(`${shell === "powershell" ? PS_FLAG : BASH_FLAG} 需要与 ${SSH_FLAG} 一起使用`);
 }
 
 if (pass) {
@@ -141,6 +158,7 @@ const child = spawn(process.execPath, [piWebBin, ...rest], {
     ...process.env,
     ...(ssh ? { [SSH_ENV]: ssh } : {}),
     ...(pass ? { [PASS_ENV]: pass } : {}),
+    ...(shell ? { [SHELL_ENV]: shell } : {}),
     ...(proxy ? {
       HTTP_PROXY: proxy,
       HTTPS_PROXY: proxy,
@@ -158,6 +176,10 @@ if (ssh) {
 if (pass) {
   // 提示密码认证已激活（ssh.ts 经 plink -pw 用 PI_WEB_SSH_PASSWORD）
   console.log("[pi-web] SSH password auth enabled (PI_WEB_SSH_PASSWORD)");
+}
+if (shell) {
+  // 提示远端执行方式（ssh.ts 读 PI_WEB_SSH_SHELL 决定 bash 还是 PowerShell）
+  console.log(`[pi-web] SSH remote shell: ${shell}`);
 }
 if (proxy) {
   console.log("[pi-web] HTTP proxy enabled");

@@ -4,7 +4,7 @@ import {
   readGlobalSettings,
   updateGlobalSettings,
 } from "./global-settings-file";
-import { isSshSession } from "./zmhuanf/ssh-session";
+import { isSshPowerShell, isSshSession } from "./zmhuanf/ssh-session";
 
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write"];
 const SHELL_TOOLS = new Set(["bash", "powershell"]);
@@ -36,7 +36,8 @@ export function resolveShellTools(
   defaultTools: readonly string[] | undefined,
   platform: NodeJS.Platform = process.platform,
 ): string[] {
-  if (isSshSession()) return replaceShellTool(toolNames, false);
+  // SSH 会话强制走远端实现：默认 bash，--ps 时用 powershell（SSH 模式下两端都由 ssh 扩展接管）
+  if (isSshSession()) return replaceShellTool(toolNames, isSshPowerShell());
   return replaceShellTool(toolNames, isPowerShellToolEnabled(defaultTools, platform));
 }
 

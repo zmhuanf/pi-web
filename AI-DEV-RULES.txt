@@ -82,7 +82,7 @@
     app/api/sessions/[id]/state/route.ts  老对话用量兑底
     app/api/agent/[id]/route.ts      请求体 toolNames 类型（1 行）
     lib/models-cache.ts              用量缓存失效挂钩
-    lib/powershell-settings.ts       SSH 模式强制 bash
+    lib/powershell-settings.ts       SSH 会话按 --ps 选 powershell，否则强制 bash
     lib/i18n/messages/en.ts zh-CN.ts 跟随按钮文案
     bin/pi-web-options.js            默认端口 30142
     package.json                     端口 30142/Windows build 修复 + start 指向 ssh-launcher
@@ -113,11 +113,16 @@
    流式 paint 前同步 + 折叠二次布局贴底（scroll-anchor）
 5. 编辑工具默认展开（跟随上游思考展开设置）
 6. 默认端口 30142 + Windows build 修复
-7. SSH 远程模式：npm run start -- --ssh user@host[:/remote/path|:<port>] [--pass 密码]；
-   启动包装摘参注入 PI_WEB_SSH / PI_WEB_SSH_PASSWORD，~/.pi/agent/extensions/ssh.ts
-   在 session_start 读取实现 read/write/edit/bash 远程化（冒号后纯数字视为端口
-   （非 / 开头），密码认证走 plink -pw（sshpass/askpass 在无 tty 下不可用），
-   首次连接自动提取 hostkey 指纹缓存，改扩展时注意保持 pi CLI 兼容）
+7. SSH 远程模式：npm run start -- --ssh user@host[:/remote/path|:<port>] [--pass 密码] [--ps|--bash]；
+   启动包装摘参注入 PI_WEB_SSH / PI_WEB_SSH_PASSWORD / PI_WEB_SSH_SHELL（--ps/--bash 只允许
+   与 --ssh 同用，同时给报错），~/.pi/agent/extensions/ssh.ts 在 session_start 读取实现
+   read/write/edit/ls/find/grep/bash 远程化（冒号后纯数字视为端口（非 / 开头），密码认证走
+   plink -pw（sshpass/askpass 在无 tty 下不可用），首次连接自动提取 hostkey 指纹缓存，
+   改扩展时注意保持 pi CLI 兼容）
+   --ps 声明远端是 Windows：所有远端命令改走 powershell -EncodedCommand（UTF-8 输出、抑制进度流、
+   try/catch 把报错转成纯文本），文件读写走 base64 字节直传，读写/edit/ls/find/grep 各有 PS 实现，
+   远端盘符冒号在本地镜像路径里编码为同名段；pi-web 侧 lib/zmhuanf/ssh-session.ts 的
+   isSshPowerShell 决定会话用 powershell 还是 bash 工具名（两端都由 ssh 扩展接管，不打本机）
 8. 最后一轮处理详情（思考+工具调用）默认展开：本次打开会话期间出现过实时输出
    才展开，重新打开历史会话仍折叠（ChatWindow tailWasActiveRef + liveTailActive +
    ProcessDetailsGroup 的 defaultExpanded 条件）
