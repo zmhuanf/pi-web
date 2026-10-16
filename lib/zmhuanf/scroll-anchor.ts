@@ -1,37 +1,5 @@
 // 滚动锚定稳定工具，输出结束时避免往上跳
 
-// 释放 prompt anchor 撑高占位时保持视口稳定
-// 跟随开启时贴底，关闭时保持相对距离避免突变
-export function releaseAnchorWithStableScroll(
-  spacer: HTMLElement | null,
-  container: HTMLElement | null,
-  following: boolean,
-): void {
-  if (!spacer) return
-  const prevHeight = spacer.getBoundingClientRect().height
-  const prevScrollTop = container?.scrollTop ?? 0
-  spacer.style.height = ""
-  if (!container || prevHeight <= 0) return
-
-  // 为什么同步加 rAF 双保险：同步消除首帧跳动，rAF 覆盖折叠等二次布局
-  if (following) {
-    container.scrollTop = container.scrollHeight - container.clientHeight
-    requestAnimationFrame(() => {
-      container.scrollTop = container.scrollHeight - container.clientHeight
-    })
-    return
-  }
-
-  // 关闭跟随即钉住当前位置，spacer 释放不应改变视口顶部内容位置
-  // 原实现从底部算相对距离使视口下移 spacer 高度，长对话下跳一大截
-  const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight)
-  const clampedTop = Math.min(prevScrollTop, maxScrollTop)
-  container.scrollTop = clampedTop
-  requestAnimationFrame(() => {
-    container.scrollTop = clampedTop
-  })
-}
-
 // 输出结束保留 prompt anchor 撑高为底部留白，避免视口跳变
 // 释放 spacer 会让视口从 user 固定位置跳到底部，长对话下跳一屏
 // 返回保留高度，供 ChatWindow 同步 promptAnchorSpacerHeightRef 供下轮比较
