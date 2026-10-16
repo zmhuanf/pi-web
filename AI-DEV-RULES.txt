@@ -78,7 +78,7 @@
                                      streamingStore 后 hook 里看不到每块流式更新，
                                      这条只能在 ChatWindow 实现）
     components/MessageView.tsx       编辑工具默认展开 2 行（用上游 isThinkingExpandedByDefault）
-    lib/session-reader.ts            最后一条思考内联桥接（3 行）
+    lib/session-reader.ts            最后一条思考内联桥接（6 行）
     app/api/sessions/[id]/state/route.ts  老对话用量兑底
     app/api/agent/[id]/route.ts      请求体 toolNames 类型（1 行）
     lib/models-cache.ts              用量缓存失效挂钩
@@ -88,7 +88,8 @@
     package.json                     端口 30142/Windows build 修复 + start 指向 ssh-launcher
                                      （保留上游 postinstall）
 
-核对基线：git diff --stat <上游 tag> 只应出现下面这 21 个文件，
+核对基线（当前基线：v0.12.2 / b017cd4，2026-10-16 合并后实测仍是下列 21 个文件）：
+git diff --stat <上游 tag> 只应出现下面这 21 个文件，
 多出来=桥接被覆盖或本地误改，少掉=桥接被上游吃掉：
 
     AI-DEV-RULES.txt、app/api/agent/[id]/route.ts、
