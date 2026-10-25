@@ -3,7 +3,8 @@ import typescript from "eslint-config-next/typescript";
 
 const eslintConfig = [
   // demo/ is a separate Next.js project with its own lint config.
-  { ignores: ["demo/**"] },
+  // pi-plugin/ holds pi extensions, outside this project's type and lint scope.
+  { ignores: ["demo/**", "pi-plugin/**"] },
   ...coreWebVitals,
   ...typescript,
   {

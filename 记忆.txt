@@ -1,2 +1,3 @@
 pi-plugin/ 是插件源码，install.bat 复制到 %USERPROFILE%\.pi\agent\extensions；该目录无 node_modules 解析链，扩展内 import 第三方包需另解依赖位置
+pi-plugin/ 的 ts 由 pi 扩展运行时执行，不在本工程，故 tsconfig.json exclude、eslint.config.mjs ignores 将其排除在类型检查与 lint 外
 系统提示词由 pi-plugin/SYSTEM.md 装到 %USERPROFILE%\.pi\agent\SYSTEM.md，替换 pi 默认提示词（preamble/tools/rules/docs 段不再生成，skills/cwd/项目指令/MCP 段照旧）；删除该文件即回退默认，替换时旧版存为 SYSTEM.md.bak
