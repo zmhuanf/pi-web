@@ -1,0 +1,14 @@
+pi-plugin/ 是插件源码，install.bat 复制到 %USERPROFILE%\.pi\agent\extensions；该目录无 node_modules 解析链，扩展内 import 第三方包需另解依赖位置
+pi-plugin/ 的 ts 由 pi 扩展运行时执行，不在本工程：tsconfig.json exclude 与 eslint.config.mjs ignores 已排除它
+系统提示词由 pi-plugin/SYSTEM.md 装到 %USERPROFILE%\.pi\agent\SYSTEM.md，替换 pi 默认提示词（preamble/tools/rules/docs 段不再生成，skills/cwd/项目指令/MCP 段照旧）；删该文件即回退默认，替换时旧版存为 SYSTEM.md.bak
+本仓库 = 上游 agegr/pi-web + 本地定制，origin 为 zmhuanf/pi-web；唯一目标是 git diff 上游行数最少：定制只放 lib|components|bin/zmhuanf/，上游文件只许 import + 1-2 行桥接，禁止删改上游代码与 *.test.mjs，改完自查无多余删除
+桥接高发文件：useAgentSession、AppShell、ChatWindow、MessageView、session-reader、sessions/[id]/state 路由、models-cache、powershell-settings、i18n 文案、pi-web-options、package.json
+合并上游：git fetch https://github.com/agegr/pi-web.git main:agegr-main，git merge --no-ff agegr-main，冲突处理 zmhuanf/ 全选本地、上游文件逐 hunk 保留桥接，收尾 node_modules/.bin/tsc --noEmit 再 git push origin main
+agegr-main 只 fetch 上游 main，不推不 checkout；origin/agegr-main 另存 2026-08 旧定制，勿 force 覆盖；rerere 已开
+基线测试本就失败（useAgentSession 4 个 + MessageView 环境问题），不为修测试改实现或断言
+本机 NODE_ENV=production，裸 npm install 跳 devDependencies，只许 npm install --include=dev；依赖环境归人工，禁止私自 npm ci 或清 node_modules（Windows EPERM 会半删）
+无 DEFAULT_TOOL_PRESET（preferences.ts 已删），工具跟随 settings.json 的 defaultTools；本机只有 read/powershell/edit/write
+本地端口 30142（AGENTS.md 的 30141 是上游值）；build 走 --webpack 且重定向 USERPROFILE；start 指向 bin/zmhuanf/ssh-launcher.js；package-lock 走 npmmirror、部分 devDeps 高于上游，改前问人
+SSH 模式：npm run start -- --ssh user@host[:/path|:port] [--pass x] [--ps|--bash]，extensions 里的 ssh.ts 接管远端工具；--ps 走 powershell -EncodedCommand、文件 base64 直传、盘符冒号编成路径段，isSshPowerShell 决定工具名
+本地功能（删改前先确认需求）：用量「已用/上限」、老对话用量、跟随按钮、最后一条思考内联防闪烁、编辑工具默认展开、最后一轮处理详情仅本次有实时输出时展开
+useAgentSession 无本地 thinkingLevel state，MessageView 工具卡默认展开只做 useState 初值，勿恢复强制对齐后端
