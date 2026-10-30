@@ -107,9 +107,9 @@ function findPlink() {
   const home = process.env.USERPROFILE || process.env.HOME;
   const candidates = [
     process.env.PLINK,
-    home && require("node:path").join(home, "bin", "plink.exe"),
-    home && require("node:path").join(home, "scoop", "shims", "plink.exe"),
-    home && require("node:path").join(home, "scoop", "apps", "putty", "current", "plink.exe"),
+    home && path.join(home, "bin", "plink.exe"),
+    home && path.join(home, "scoop", "shims", "plink.exe"),
+    home && path.join(home, "scoop", "apps", "putty", "current", "plink.exe"),
   ].filter(Boolean);
   for (const c of candidates) {
     if (fs.existsSync(c)) return c;
