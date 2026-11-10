@@ -143,15 +143,16 @@ test("empty or whitespace-only drafts cannot be submitted", (t) => {
 
 test("question stays outside the scrolling input and option regions", (t) => {
   const panel = setup(t);
-  assert.match(panel.tree.props.className, /flex-col.*overflow-hidden/);
+  assert.match(panel.find("section").props.className, /flex-col.*overflow-hidden/);
   const heading = panel.find("h3");
   assert.match(heading.props.className, /shrink-0.*overflow-y-auto/);
-  assert.equal(panel.tree.props.children[1].type, "h3");
+  assert.equal(panel.find("section").props.children[1].type, "h3");
   panel.click(ASK_USER_OTHER);
   panel.type("长回答\n".repeat(100));
-  assert.equal(panel.tree.props.children[1].type, "h3");
-  assert.equal(panel.tree.props.children[2].type, "form");
-  assert.match(panel.find("form").props.className, /overflow-y-auto/);
+  assert.equal(panel.find("section").props.children[1].type, "h3");
+  const body = panel.find("section").props.children[2];
+  assert.equal(body.props.children.type, "form");
+  assert.match(body.props.className, /overflow-y-auto/);
   assert.equal(text(panel.find("h3")), "原问题：请选择方案");
 });
 
@@ -162,6 +163,50 @@ test("request replay preserves the locally open input and draft", (t) => {
   panel.hook.rerender({ request: { ...request }, waitingCount: 1, onRespond() {} });
   assert.equal(panel.find("textarea").props.value, "保留草稿");
   assert.equal(text(panel.find("h3")), "原问题：请选择方案");
+});
+
+test("collapse hides the answer region without responding and expands the same question", (t) => {
+  const panel = setup(t);
+  panel.click("收起");
+  const section = panel.find("section");
+  const body = section.props.children[2];
+  const toggle = elements(panel.tree).find((node) => node.type === "button" && text(node) === "展开");
+  assert.equal(body.props.hidden, true);
+  assert.equal(toggle.props["aria-expanded"], false);
+  assert.equal(toggle.props["aria-controls"], body.props.id);
+  assert.equal(panel.find("h3").props.className, "sr-only");
+  assert.match(text(section.props.children[0]), /等待回答：原问题：请选择方案/);
+  assert.deepEqual(panel.responses, []);
+  panel.click("展开");
+  assert.equal(panel.find("section").props.children[2].props.hidden, false);
+  assert.match(text(panel.tree), /方案 B推荐/);
+  panel.click("方案 A");
+  assert.deepEqual(panel.responses, [{ id: "ask-1", value: request.options[0] }]);
+});
+
+test("collapse and request replay preserve custom mode and its draft", (t) => {
+  const panel = setup(t);
+  panel.click(ASK_USER_OTHER);
+  panel.type("保留草稿\n第二行");
+  panel.click("收起");
+  panel.hook.rerender({ request: { ...request }, waitingCount: 2, onRespond() { assert.fail("Collapse must not answer"); } });
+  assert.equal(panel.find("section").props.children[2].props.hidden, true);
+  assert.match(text(panel.tree), /另有 2 项等待处理/);
+  panel.click("展开");
+  assert.equal(panel.find("textarea").props.value, "保留草稿\n第二行");
+  assert.ok(elements(panel.tree).some((node) => node.type === "button" && text(node) === "返回选项"));
+  assert.deepEqual(panel.responses, []);
+});
+
+test("a newly mounted question starts expanded with no draft", (t) => {
+  const first = setup(t);
+  first.click(ASK_USER_OTHER);
+  first.type("上一个问题的草稿");
+  first.click("收起");
+  const next = setup(t, { ...request, id: "ask-2" });
+  assert.equal(next.find("section").props.children[2].props.hidden, false);
+  next.click(ASK_USER_OTHER);
+  assert.equal(next.find("textarea").props.value, "");
 });
 
 test("Enter and IME composition do not submit while Ctrl Enter does", (t) => {

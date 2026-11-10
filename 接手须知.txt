@@ -12,4 +12,5 @@ agegr-main 只 fetch 上游 main，不推不 checkout；origin/agegr-main 另存
 SSH 模式：npm run start -- --ssh user@host[:/path|:port] [--pass x] [--ps|--bash]，extensions 里的 ssh.ts 接管远端工具；--ps 走 powershell -EncodedCommand、文件 base64 直传、盘符冒号编成路径段，isSshPowerShell 决定工具名
 本地功能（删改前先确认需求）：用量「已用/上限」、老对话用量、跟随按钮、最后一条思考内联防闪烁、编辑工具默认展开、最后一轮处理详情仅本次有实时输出时展开
 useAgentSession 无本地 thinkingLevel state，MessageView 工具卡默认展开只做 useState 初值，勿恢复强制对齐后端
-ask_user 仅普通工具会话启用；以 ask_user · 标题与保留选项识别面板；网页自定义输入与返回仅切本地状态，提交值用 ask_user:custom: 前缀，CLI 保留 select/input；不扩展 pi UI 协议，停止不同于跳过
+ask_user 仅普通工具会话启用；以 ask_user · 标题与保留选项识别面板；自定义输入与收起仅切本地状态，保留草稿，提交值用 ask_user:custom: 前缀；推荐参数优先从 1 开始的编号，兼容旧文字；CLI 保留 select/input，不扩展 pi UI 协议，停止不同于跳过
+AskUserPanel 外边距跟随 ChatInput：左 16px，右桌面 52px、≤640px 为 16px，最大宽度跟随 --chat-content-max-width；ChatWindow 以请求 id 为 key 隔离每个问题的草稿与收起状态

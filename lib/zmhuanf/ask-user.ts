@@ -17,8 +17,11 @@ const parameters = Type.Object({
     uniqueItems: true,
     description: "Single-choice answers. Custom input and Skip are added automatically.",
   }),
-  recommendedOption: Type.Optional(Type.String({
-    description: "The recommended answer, exactly matching one of options. Omit if no recommendation is appropriate.",
+  recommendedOption: Type.Optional(Type.Union([
+    Type.Integer({ minimum: 1 }),
+    Type.String({ minLength: 1 }),
+  ], {
+    description: "Recommended option number (1-based).",
   })),
 });
 
@@ -48,7 +51,11 @@ export function createAskUserExtension(): InlineExtension {
           if (!ctx.hasUI) throw new Error("ask_user requires an interactive user interface");
           const question = params.question.trim();
           const options = params.options.map((option) => option.trim());
-          const recommendedOption = params.recommendedOption?.trim();
+          const recommendation = params.recommendedOption;
+          if (typeof recommendation === "number" && (!Number.isInteger(recommendation) || recommendation < 1 || recommendation > options.length)) {
+            throw new Error("recommendedOption must be an option number from 1 to options.length");
+          }
+          const recommendedOption = typeof recommendation === "number" ? options[recommendation - 1] : recommendation?.trim();
           if (!question || !options.length || options.some((option) => !option)) {
             throw new Error("Question and options must not be blank");
           }

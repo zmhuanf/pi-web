@@ -28,7 +28,9 @@ test("shows question, every option, a recommendation, custom input and skip", ()
   assert.match(html, /其他：自己输入/);
   assert.match(html, />跳过<\/button>/);
   assert.match(html, /另有 2 项等待处理/);
-  assert.equal(html.match(/<button/g).length, 4);
+  assert.equal(html.match(/<button/g).length, 5);
+  assert.match(html, /aria-expanded="true"/);
+  assert.match(html, />收起<\/button>/);
   assert.doesNotMatch(html, /ask_user · |★ |role="dialog"|aria-modal|aria-pressed="true"/);
 });
 
@@ -56,6 +58,13 @@ test("question and option markup is displayed as text", () => {
   assert.match(html, /&lt;script&gt;/);
   assert.match(html, /&lt;img/);
   assert.doesNotMatch(html, /<script|<img/);
+});
+
+test("panel spacing follows the composer gutters and configurable maximum width", () => {
+  const html = render();
+  assert.match(html, /px-4 min-\[641px\]:pr-\[52px\]/);
+  assert.match(html, /max-width:var\(--chat-content-max-width, 820px\)/);
+  assert.doesNotMatch(html, /width:calc\(100% - 32px\)/);
 });
 
 test("the bridge places questions above the composer and leaves normal dialogs intact", async () => {
