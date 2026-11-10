@@ -47,6 +47,7 @@ import {
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
 import { retainAnchorSpacer } from "@/lib/zmhuanf/scroll-anchor";
+import { AskUserPanel, isAskUserRequest } from "./zmhuanf/AskUserPanel";
 
 interface Props {
   session: SessionInfo | null;
@@ -1106,7 +1107,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       </div>
 
       <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        {extensionDialog && (
+        {extensionDialog && !isAskUserRequest(extensionDialog) && (
           <ExtensionDialog key={extensionDialog.id} request={extensionDialog} waitingCount={waitingExtensionDialogCount} onRespond={respondToExtensionUi} />
         )}
         {extensionCustomUi && (
@@ -1543,6 +1544,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             </div>
           </div>
         )}
+        <AskUserPanel key={extensionDialog?.id} request={extensionDialog} waitingCount={waitingExtensionDialogCount} onRespond={respondToExtensionUi} />
         {chatInputElement}
         <ExtensionStatusBar
           statuses={extensionStatuses}
