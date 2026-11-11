@@ -1,7 +1,7 @@
 pi-plugin/ 是插件源码，install.bat 复制到 %USERPROFILE%\.pi\agent\extensions；该目录无 node_modules 解析链，扩展内 import 第三方包需另解依赖位置
 pi-plugin/ 的 ts 由 pi 扩展运行时执行，不在本工程：tsconfig.json exclude 与 eslint.config.mjs ignores 已排除它
 系统提示词由 pi-plugin/SYSTEM.md 装到 %USERPROFILE%\.pi\agent\SYSTEM.md，替换 pi 默认提示词（preamble/tools/rules/docs 段不再生成，skills/cwd/项目指令/MCP 段照旧）；删该文件即回退默认，替换时旧版存为 SYSTEM.md.bak
-本仓库 = 上游 agegr/pi-web + 本地定制，origin 为 zmhuanf/pi-web；唯一目标是 git diff 上游行数最少：定制只放 lib|components|bin/zmhuanf/，上游文件只许 import + 1-2 行桥接，禁止删改上游代码与 *.test.mjs，改完自查无多余删除
+本仓库 = 上游 agegr/pi-web + 本地定制，origin 为 zmhuanf/pi-web；唯一目标是 git diff 上游行数最少：定制只放 lib|components|bin/zmhuanf/，上游文件只许 import + 1-2 行桥接，禁止删改上游代码与测试，本地定制测试经用户同意可调整，改完自查无多余删除
 桥接高发文件：useAgentSession、AppShell、ChatWindow、MessageView、session-reader、sessions/[id]/state 路由、models-cache、powershell-settings、i18n 文案、pi-web-options、package.json
 合并上游：git fetch https://github.com/agegr/pi-web.git main:agegr-main，git merge --no-ff agegr-main，冲突处理 zmhuanf/ 全选本地、上游文件逐 hunk 保留桥接，收尾 node_modules/.bin/tsc --noEmit 再 git push origin main
 agegr-main 只 fetch 上游 main，不推不 checkout；origin/agegr-main 另存 2026-08 旧定制，勿 force 覆盖；rerere 已开
@@ -12,5 +12,6 @@ agegr-main 只 fetch 上游 main，不推不 checkout；origin/agegr-main 另存
 SSH 模式：npm run start -- --ssh user@host[:/path|:port] [--pass x] [--ps|--bash]，extensions 里的 ssh.ts 接管远端工具；--ps 走 powershell -EncodedCommand、文件 base64 直传、盘符冒号编成路径段，isSshPowerShell 决定工具名
 本地功能（删改前先确认需求）：用量「已用/上限」、老对话用量、跟随按钮、最后一条思考内联防闪烁、编辑工具默认展开、最后一轮处理详情仅本次有实时输出时展开
 useAgentSession 无本地 thinkingLevel state，MessageView 工具卡默认展开只做 useState 初值，勿恢复强制对齐后端
-ask_user 仅普通工具会话启用；以 ask_user · 标题与保留选项识别面板；自定义输入与收起仅切本地状态，保留草稿，提交值用 ask_user:custom: 前缀；推荐参数优先从 1 开始的编号，兼容旧文字；CLI 保留 select/input，不扩展 pi UI 协议，停止不同于跳过
+ask_user 仅普通工具会话启用，输入非空 questions 列表、返回 answers 列表且每项仅 questionIndex（从 1 开始）与 answer；source 仅用于界面回传校验；推荐编号静默兼容数字和字符串，选项原文优先避免二次归一化歧义；跳过返回按你推荐的来，停止不算跳过；这些兼容和界面行为不注入工具提示词
+ask_user 的 RPC 借标准 input 的 ask_user · 标题与 ask_user:questions:v1: placeholder 携带题目，不扩展 pi UI 协议；选项和跳过自动推进、答完自动提交（含单题），自定义草稿须点下一题或提交确认；TUI 保留逐题 select/input
 AskUserPanel 外边距跟随 ChatInput：左 16px，右桌面 52px、≤640px 为 16px，最大宽度跟随 --chat-content-max-width；ChatWindow 以请求 id 为 key 隔离每个问题的草稿与收起状态

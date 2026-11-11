@@ -9,8 +9,8 @@ import * as hooks from "../../hooks/__fixtures__/react-hook-shim.mjs";
 
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
 const protocol = await jiti.import("../../lib/zmhuanf/ask-user-protocol.ts");
-const { ASK_USER_CUSTOM_PREFIX, ASK_USER_OTHER, ASK_USER_SKIP, ASK_USER_TITLE_PREFIX, askUserOptions } = protocol;
-const source = await readFile(new URL("./AskUserPanel.tsx", import.meta.url), "utf8");
+const { ASK_USER_OTHER, ASK_USER_SKIP, ASK_USER_TITLE_PREFIX, ASK_USER_BATCH_PREFIX, readAskUserBatch } = protocol;
+const source = await readFile(new URL("./AskUserBatchPanel.tsx", import.meta.url), "utf8");
 const { outputText } = ts.transpileModule(source, {
   compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 });
@@ -24,11 +24,11 @@ runInNewContext(outputText, {
     throw new Error(`Unexpected import: ${name}`);
   },
 });
-const { AskUserPanel } = componentModule.exports;
+const { AskUserBatchPanel } = componentModule.exports;
 const request = {
-  type: "extension_ui_request", id: "ask-1", method: "select",
-  title: `${ASK_USER_TITLE_PREFIX}原问题：请选择方案`,
-  options: askUserOptions(["方案 A", "方案 B"], "方案 B"),
+  type: "extension_ui_request", id: "ask-1", method: "input",
+  title: `${ASK_USER_TITLE_PREFIX}1 个问题`,
+  placeholder: `${ASK_USER_BATCH_PREFIX}${JSON.stringify([{ question: "原问题：请选择方案", options: ["方案 A", "方案 B"], recommendedOption: "方案 B" }])}`,
 };
 
 /** 遍历实际组件返回的元素树 */
@@ -48,7 +48,7 @@ function text(node) {
 /** 使用项目钩子模拟器驱动实际组件的交互 */
 function setup(t, initial = request) {
   const responses = [];
-  const hook = hooks.renderHook((props) => AskUserPanel(props), {
+  const hook = hooks.renderHook((props) => AskUserBatchPanel({ ...props, questions: readAskUserBatch(props.request) }), {
     request: initial,
     waitingCount: 0,
     onRespond(current, response) { responses.push({ id: current.id, ...response }); },
@@ -109,7 +109,9 @@ test("an ordinary option can still be selected after returning", (t) => {
   panel.type("不提交的草稿");
   panel.click("返回选项");
   panel.click("方案 B推荐");
-  assert.deepEqual(panel.responses, [{ id: "ask-1", value: request.options[1] }]);
+  assert.deepEqual(panel.responses, [{ id: "ask-1", value: JSON.stringify({ answers: [{ source: "option", option: 2 }] }) }]);
+  panel.submit();
+  assert.equal(panel.responses.length, 1);
 });
 
 test("custom submission is one response on the original request", (t) => {
@@ -118,7 +120,7 @@ test("custom submission is one response on the original request", (t) => {
   panel.type("  自定义回答\n第二行  ");
   panel.submit();
   panel.submit();
-  assert.deepEqual(panel.responses, [{ id: "ask-1", value: `${ASK_USER_CUSTOM_PREFIX}自定义回答\n第二行` }]);
+  assert.deepEqual(panel.responses, [{ id: "ask-1", value: JSON.stringify({ answers: [{ source: "custom", answer: "自定义回答\n第二行" }] }) }]);
 });
 
 test("Skip during input is still a skip rather than an empty custom answer", (t) => {
@@ -126,7 +128,9 @@ test("Skip during input is still a skip rather than an empty custom answer", (t)
   panel.click(ASK_USER_OTHER);
   panel.type("不会提交的草稿");
   panel.click(ASK_USER_SKIP);
-  assert.deepEqual(panel.responses, [{ id: "ask-1", value: ASK_USER_SKIP }]);
+  assert.deepEqual(panel.responses, [{ id: "ask-1", value: JSON.stringify({ answers: [{ source: "skipped" }] }) }]);
+  panel.submit();
+  assert.equal(panel.responses.length, 1);
 });
 
 test("empty or whitespace-only drafts cannot be submitted", (t) => {
@@ -181,7 +185,9 @@ test("collapse hides the answer region without responding and expands the same q
   assert.equal(panel.find("section").props.children[2].props.hidden, false);
   assert.match(text(panel.tree), /方案 B推荐/);
   panel.click("方案 A");
-  assert.deepEqual(panel.responses, [{ id: "ask-1", value: request.options[0] }]);
+  assert.deepEqual(panel.responses, [{ id: "ask-1", value: JSON.stringify({ answers: [{ source: "option", option: 1 }] }) }]);
+  panel.submit();
+  assert.equal(panel.responses.length, 1);
 });
 
 test("collapse and request replay preserve custom mode and its draft", (t) => {
