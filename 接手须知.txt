@@ -12,6 +12,6 @@ agegr-main 只 fetch 上游 main，不推不 checkout；origin/agegr-main 另存
 SSH 模式：npm run start -- --ssh user@host[:/path|:port] [--pass x] [--ps|--bash]，extensions 里的 ssh.ts 接管远端工具；--ps 走 powershell -EncodedCommand、文件 base64 直传、盘符冒号编成路径段，isSshPowerShell 决定工具名
 本地功能（删改前先确认需求）：用量「已用/上限」、老对话用量、跟随按钮、最后一条思考内联防闪烁、编辑工具默认展开、最后一轮处理详情仅本次有实时输出时展开
 useAgentSession 无本地 thinkingLevel state，MessageView 工具卡默认展开只做 useState 初值，勿恢复强制对齐后端
-ask_user 仅普通工具会话启用，输入非空 questions 列表、返回 answers 列表且每项仅 questionIndex（从 1 开始）与 answer；source 仅用于界面回传校验；推荐编号静默兼容数字和字符串，选项原文优先避免二次归一化歧义；跳过返回按你推荐的来，停止不算跳过；这些兼容和界面行为不注入工具提示词
+ask_user 仅普通工具会话启用，输入非空 questions 列表、返回 answers 列表且每项仅 questionIndex（从 1 开始）与 answer；source 仅用于界面回传校验；推荐编号静默兼容数字和字符串，选项原文优先避免二次归一化歧义；跳过返回按你推荐的来，停止不算跳过；这些兼容和界面行为不注入工具提示词；1 起始题号是写进 description 的数据契约；description/promptSnippet/options 描述含 Skip|custom|按你推荐的来 会挂测试
 ask_user 的 RPC 借标准 input 的 ask_user · 标题与 ask_user:questions:v1: placeholder 携带题目，不扩展 pi UI 协议；选项和跳过自动推进、答完自动提交（含单题），自定义草稿须点下一题或提交确认；TUI 保留逐题 select/input
 AskUserPanel 外边距跟随 ChatInput：左 16px，右桌面 52px、≤640px 为 16px，最大宽度跟随 --chat-content-max-width；ChatWindow 以请求 id 为 key 隔离每个问题的草稿与收起状态

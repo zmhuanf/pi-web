@@ -99,7 +99,7 @@ export function createAskUserExtension(): InlineExtension {
       pi.registerTool(defineTool<typeof parameters, { answers: AskUserAnswer[] }>({
         name: "ask_user",
         label: "询问用户",
-        description: "Ask the user questions and wait for their answers before proceeding. Always use the questions array, even for one question. Group independent questions in one call; ask dependent follow-up questions after receiving the answers they depend on.",
+        description: "Ask the user questions and wait for their answers before proceeding. Always use the questions array, even for one question. Group independent questions in one call; ask dependent follow-up questions after receiving the answers they depend on. Each answer's questionIndex is the question's 1-based position in the questions array.",
         promptSnippet: "Ask the user questions and wait for answers; group independent questions in one call",
         exposure: "model-only",
         executionMode: "sequential",
