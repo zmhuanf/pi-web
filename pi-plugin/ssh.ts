@@ -37,11 +37,14 @@ import {
 	createPowerShellTool,
 	createReadTool,
 	createWriteTool,
+	generateDiffString,
+	generateUnifiedPatch,
 	type EditOperations,
 	type FindOperations,
 	type LsOperations,
 	type ReadOperations,
 	type WriteOperations,
+	withFileMutationQueue,
 } from "@earendil-works/pi-coding-agent";
 
 // 冒号后纯数字视为端口（如 host:2222），跨会话可被 buildSshInvocation 读取
@@ -734,6 +737,328 @@ function createPowerShellEditOps(remote: string, remoteCwd: string, localCwd: st
 	return { readFile: r.readFile, access: r.access, writeFile: w.writeFile };
 }
 
+export interface EditRequest {
+	oldText: string;
+	newText: string;
+}
+
+export interface EditPlan {
+	/** 待写入的完整文件内容，BOM 已还原 */
+	finalContent: string;
+	diff: string;
+	patch: string;
+	firstChangedLine?: number;
+}
+
+interface Skeleton {
+	text: string;
+	/** 骨架第 i 个字符在原文的下标，末项为原文长度 */
+	offsets: number[];
+}
+
+interface Replacement {
+	start: number;
+	end: number;
+	text: string;
+	editIndex: number;
+}
+
+/** 无宽度字符：BOM、零宽空格系列、方向控制、软连字符 */
+const ZERO_WIDTH = /[\u00AD\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/;
+
+/** 与 ASCII 1:1 等价的字符，长度不变才不破坏位置映射 */
+const EQUIVALENTS: Record<string, string> = {
+	"\u2018": "'",
+	"\u2019": "'",
+	"\u201A": "'",
+	"\u201B": "'",
+	"\u201C": '"',
+	"\u201D": '"',
+	"\u201E": '"',
+	"\u201F": '"',
+	"\u2010": "-",
+	"\u2011": "-",
+	"\u2012": "-",
+	"\u2013": "-",
+	"\u2014": "-",
+	"\u2015": "-",
+	"\u2212": "-",
+	"\u00A0": " ",
+	"\u2000": " ",
+	"\u2001": " ",
+	"\u2002": " ",
+	"\u2003": " ",
+	"\u2004": " ",
+	"\u2005": " ",
+	"\u2006": " ",
+	"\u2007": " ",
+	"\u2008": " ",
+	"\u2009": " ",
+	"\u200A": " ",
+	"\u202F": " ",
+	"\u205F": " ",
+	"\u3000": " ",
+};
+
+/** 二级骨架整体剔除的空白 */
+const BLANK = new Set([" ", "\t", "\n", "\f", "\v", "\u0085", "\u2028", "\u2029"]);
+
+/** 行内水平空白，含经等价映射后的 Unicode 空格 */
+const HORIZONTAL = /[ \t\f\v\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/;
+
+function isHorizontalSpace(char: string | undefined): boolean {
+	return char !== undefined && HORIZONTAL.test(char);
+}
+
+function endsWithLineBreak(text: string): boolean {
+	return text.endsWith("\n") || text.endsWith("\r");
+}
+
+/**
+ * 建骨架：ignoreBlank 为 false 时只丢掉无宽度字符与 \r，为 true 时连空白一起丢掉
+ * offsets 让骨架上的命中原样换算回原文位置，不靠重新对齐
+ */
+function buildSkeleton(source: string, ignoreBlank: boolean): Skeleton {
+	const chars: string[] = [];
+	const offsets: number[] = [];
+	for (let index = 0; index < source.length; index++) {
+		const char = source[index];
+		// \r 一并剔除，CRLF 与 LF 因此在骨架上互通
+		if (char === "\r" || ZERO_WIDTH.test(char)) continue;
+		const mapped = EQUIVALENTS[char] ?? char;
+		if (ignoreBlank && BLANK.has(mapped)) continue;
+		chars.push(mapped);
+		offsets.push(index);
+	}
+	offsets.push(source.length);
+	return { text: chars.join(""), offsets };
+}
+
+/** 骨架里 needle 出现的位置，取到 limit 处即停 */
+function matchAll(haystack: string, needle: string, limit = 2): number[] {
+	const found: number[] = [];
+	for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, at + 1)) {
+		found.push(at);
+		if (found.length === limit) break;
+	}
+	return found;
+}
+
+/** 区间起点所在行的行尾：自己的换行，末行无换行时用前一个 */
+function lineEndingAt(source: string, offset: number): string {
+	let lineFeed = source.indexOf("\n", offset);
+	if (lineFeed === -1) lineFeed = source.lastIndexOf("\n", offset);
+	if (lineFeed === -1) return source.includes("\r") ? "\r" : "\n";
+	return source[lineFeed - 1] === "\r" ? "\r\n" : "\n";
+}
+
+/** newText 的换行按原文该处的行尾写入，避免 CRLF 文件混入裸 LF */
+function withLineEnding(source: string, offset: number, newText: string): string {
+	const ending = lineEndingAt(source, offset);
+	const lineFeeds = newText.replace(/\r\n/g, "\n");
+	return ending === "\n" ? lineFeeds : lineFeeds.replace(/\n/g, ending);
+}
+
+/** 统一成 LF 再算 diff，行尾风格差异不该显示成整篇改动 */
+function normalizeToLF(text: string): string {
+	return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+function editLabel(index: number, total: number): string {
+	return total === 1 ? "oldText" : `edits[${index}].oldText`;
+}
+
+function notFoundError(index: number, total: number, path: string): Error {
+	return new Error(
+		`Could not find ${editLabel(index, total)} in ${path} even after ignoring whitespace, line endings and invisible characters. Check the text with read.`,
+	);
+}
+
+function duplicateError(index: number, total: number, path: string): Error {
+	return new Error(
+		`Found more than one occurrence of ${editLabel(index, total)} in ${path} after ignoring whitespace. Add surrounding lines to make it unique.`,
+	);
+}
+
+/** 整行删除时连缩进和换行一并删，否则会留下空行或把缩进贴给下一行；行内局部删除不受影响 */
+function wholeLineDeletion(source: string, start: number, end: number, editIndex: number): Replacement | undefined {
+	let from = start;
+	while (from > 0 && isHorizontalSpace(source[from - 1])) from--;
+	if (from > 0 && !endsWithLineBreak(source[from - 1])) return undefined;
+	let to = end;
+	// 命中区可能已含行尾换行，此时行尾就是 end
+	if (!(to > start && endsWithLineBreak(source[to - 1]))) {
+		while (to < source.length && isHorizontalSpace(source[to])) to++;
+		if (to < source.length && !endsWithLineBreak(source[to])) return undefined;
+		if (source.startsWith("\r\n", to)) to += 2;
+		else if (to < source.length) to += 1;
+	}
+	return { start: from, end: to, text: "", editIndex };
+}
+
+/**
+ * 二级命中的区间只覆盖可见字符，缩进与行尾空白留在区间外
+ * oldText 与 newText 都以缩进开头、或都以换行结尾（newText 为空表示整段删除）时两侧语义对称，
+ * 把原文的缩进 / 行尾空白一并纳入替换，否则会叠出两层缩进、多出一个空行或留下空缩进行
+ */
+function widenBalanced(source: string, start: number, end: number, edit: EditRequest, editIndex: number): Replacement {
+	let from = start;
+	let to = end;
+	const removesWholeLine = edit.newText.length === 0;
+	if (isHorizontalSpace(edit.oldText[0]) && (removesWholeLine || isHorizontalSpace(edit.newText[0]))) {
+		while (from > 0 && isHorizontalSpace(source[from - 1])) from--;
+	}
+	if (endsWithLineBreak(edit.oldText) && (removesWholeLine || endsWithLineBreak(edit.newText))) {
+		let after = to;
+		while (after < source.length && isHorizontalSpace(source[after])) after++;
+		if (source.startsWith("\r\n", after)) after += 2;
+		else if (after < source.length && (source[after] === "\n" || source[after] === "\r")) after += 1;
+		to = after;
+	}
+	return { start: from, end: to, text: withLineEnding(source, from, edit.newText), editIndex };
+}
+
+/** 命中区间转成替换：整行删除优先，宽松命中再平衡缩进与行尾空白 */
+function toReplacement(source: string, start: number, end: number, edit: EditRequest, editIndex: number, widen: boolean): Replacement {
+	if (edit.newText.length === 0) {
+		const wholeLine = wholeLineDeletion(source, start, end, editIndex);
+		if (wholeLine) return wholeLine;
+	}
+	if (!widen) return { start, end, text: withLineEnding(source, start, edit.newText), editIndex };
+	return widenBalanced(source, start, end, edit, editIndex);
+}
+
+/** 单条 edit 定位到原文区间，先用严格骨架，命中不了再用忽略空白的骨架 */
+function resolveEdit(
+	source: string,
+	strict: Skeleton,
+	loose: () => Skeleton,
+	edit: EditRequest,
+	index: number,
+	total: number,
+	path: string,
+): Replacement {
+	const looseNeedle = buildSkeleton(edit.oldText, true).text;
+	if (looseNeedle.length === 0) {
+		throw new Error(`${editLabel(index, total)} contains only whitespace or invisible characters in ${path}.`);
+	}
+	const strictNeedle = buildSkeleton(edit.oldText, false).text;
+	const strictHits = strictNeedle.length > 0 ? matchAll(strict.text, strictNeedle) : [];
+	if (strictHits.length > 1) throw duplicateError(index, total, path);
+	if (strictHits.length === 1) {
+		const start = strict.offsets[strictHits[0]];
+		const end = strict.offsets[strictHits[0] + strictNeedle.length - 1] + 1;
+		return toReplacement(source, start, end, edit, index, false);
+	}
+	const looseSkeleton = loose();
+	const looseHits = matchAll(looseSkeleton.text, looseNeedle);
+	if (looseHits.length === 0) throw notFoundError(index, total, path);
+	if (looseHits.length > 1) throw duplicateError(index, total, path);
+	const start = looseSkeleton.offsets[looseHits[0]];
+	const end = looseSkeleton.offsets[looseHits[0] + looseNeedle.length - 1] + 1;
+	return toReplacement(source, start, end, edit, index, true);
+}
+
+/**
+ * 把多条 edit 应用到原文，返回写入内容与 diff
+ * 所有 edit 都对照同一份原文定位，重叠视为错误
+ */
+export function planEdit(rawContent: string, edits: EditRequest[], displayPath: string): EditPlan {
+	const bom = rawContent.startsWith("\uFEFF") ? "\uFEFF" : "";
+	const source = bom ? rawContent.slice(1) : rawContent;
+	const strict = buildSkeleton(source, false);
+	let looseSkeleton: Skeleton | undefined;
+	const loose = () => (looseSkeleton ??= buildSkeleton(source, true));
+	const replacements = edits
+		.map((edit, index) => resolveEdit(source, strict, loose, edit, index, edits.length, displayPath))
+		.sort((a, b) => a.start - b.start);
+	for (let index = 1; index < replacements.length; index++) {
+		const previous = replacements[index - 1];
+		const current = replacements[index];
+		if (previous.end > current.start) {
+			throw new Error(`edits[${previous.editIndex}] and edits[${current.editIndex}] overlap in ${displayPath}. Merge them into one edit.`);
+		}
+	}
+	let updated = "";
+	let cursor = 0;
+	for (const replacement of replacements) {
+		updated += source.slice(cursor, replacement.start) + replacement.text;
+		cursor = replacement.end;
+	}
+	updated += source.slice(cursor);
+	if (updated === source) {
+		throw new Error(`No changes made to ${displayPath}. The replacement produced identical content.`);
+	}
+	const before = normalizeToLF(source);
+	const after = normalizeToLF(updated);
+	const { diff, firstChangedLine } = generateDiffString(before, after);
+	return { finalContent: bom + updated, diff, patch: generateUnifiedPatch(displayPath, before, after), firstChangedLine };
+}
+
+function isEditRequest(value: unknown): value is EditRequest {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+	const edit = value as Record<string, unknown>;
+	return typeof edit.oldText === "string" && typeof edit.newText === "string";
+}
+
+/** 按 pi 的 edit 入参约定取出路径与 edits；edits 可能是 JSON 字符串或单个对象，另兼容顶层 oldText/newText */
+function normalizeEditInput(params: unknown): { path: string; edits: EditRequest[] } {
+	if (!params || typeof params !== "object" || Array.isArray(params)) throw new Error("Edit tool input is invalid");
+	const input = params as Record<string, unknown>;
+	const target = typeof input.path === "string" ? input.path : typeof input.file_path === "string" ? input.file_path : undefined;
+	if (!target) throw new Error("Edit tool input is invalid: path is required");
+	let edits = input.edits;
+	if (typeof edits === "string") {
+		try {
+			edits = JSON.parse(edits);
+		} catch {
+			edits = undefined;
+		}
+	}
+	if (isEditRequest(edits)) edits = [edits];
+	const list = Array.isArray(edits) ? edits : [];
+	if (!list.every(isEditRequest)) throw new Error("Edit tool input is invalid: each edit needs string oldText and newText");
+	if (typeof input.oldText === "string" && typeof input.newText === "string") {
+		list.push({ oldText: input.oldText, newText: input.newText });
+	}
+	if (list.length === 0) throw new Error("Edit tool input is invalid: edits must contain at least one replacement");
+	return { path: target, edits: list };
+}
+
+/** 相对路径按会话 cwd 解析，展开 ~ 与 @ 前缀，路径里的 Unicode 空格按普通空格处理 */
+function resolveToolPath(input: string, cwd: string): string {
+	const trimmed = input.startsWith("@") ? input.slice(1) : input;
+	const normalized = trimmed.replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, " ");
+	if (normalized === "~" || normalized === "~/") return os.homedir();
+	if (normalized.startsWith("~/") || normalized.startsWith("~\\")) return path.join(os.homedir(), normalized.slice(2));
+	return path.isAbsolute(normalized) ? normalized : path.resolve(cwd, normalized);
+}
+
+/** edit 执行：匹配与写回交给 edit-match，读写经 EditOperations，本地时走 fs */
+async function executeEdit(cwd: string, filePath: string, edits: EditRequest[], operations: EditOperations | undefined, signal?: AbortSignal) {
+	const absolutePath = resolveToolPath(filePath, cwd);
+	const readFile = operations?.readFile ?? ((file: string) => fs.promises.readFile(file));
+	const writeFile = operations?.writeFile ?? ((file: string, content: string) => fs.promises.writeFile(file, content, "utf-8"));
+	const access = operations?.access ?? ((file: string) => fs.promises.access(file, fs.constants.R_OK | fs.constants.W_OK));
+	return withFileMutationQueue(absolutePath, async () => {
+		if (signal?.aborted) throw new Error("Operation aborted");
+		try {
+			await access(absolutePath);
+		} catch (error) {
+			const detail = error instanceof Error ? error.message : String(error);
+			throw new Error(`Could not edit file: ${filePath}. ${detail}.`);
+		}
+		const rawContent = (await readFile(absolutePath)).toString("utf-8");
+		if (signal?.aborted) throw new Error("Operation aborted");
+		const plan = planEdit(rawContent, edits, filePath);
+		await writeFile(absolutePath, plan.finalContent);
+		return {
+			content: [{ type: "text" as const, text: `Successfully replaced ${edits.length} block(s) in ${filePath}.` }],
+			details: { diff: plan.diff, patch: plan.patch, firstChangedLine: plan.firstChangedLine },
+		};
+	});
+}
+
 /** 原生 ssh 执行（key 认证），输出按块回调 */
 function sshRun(remote: string, cmd: string, options: { onData?: (d: Buffer) => void; signal?: AbortSignal; timeout?: number }): Promise<{ exitCode: number | null }> {
 	return new Promise((resolve, reject) => {
@@ -1051,17 +1376,18 @@ export default function (pi: ExtensionAPI) {
 			"Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
 			"Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.",
 		],
-		async execute(id, params, signal, onUpdate, _ctx) {
+		async execute(_id, params, signal, _onUpdate, _ctx) {
 			const ssh = requireSsh();
+			const { path: filePath, edits } = normalizeEditInput(params);
+			const target = ssh ? toMirrorPath(filePath, sessionCwd, ssh) : filePath;
 			const ops = ssh
 				? (isPowerShellRemote()
 					? createPowerShellEditOps(ssh.remote, ssh.remoteCwd, sessionCwd)
 					: createRemoteEditOps(ssh.remote, ssh.remoteCwd, sessionCwd))
 				: undefined;
-			const tool = createEditTool(sessionCwd, ops ? { operations: ops } : undefined);
-			const input = ssh ? { ...params, path: toMirrorPath(params.path, sessionCwd, ssh) } : params;
-			if (!ssh) return tool.execute(id, input, signal, onUpdate);
-			return withRemotePaths(sessionCwd, ssh, () => tool.execute(id, input, signal, onUpdate));
+			const run = () => executeEdit(sessionCwd, target, edits, ops, signal);
+			if (!ssh) return run();
+			return withRemotePaths(sessionCwd, ssh, run);
 		},
 	});
 

@@ -16,3 +16,4 @@ useAgentSession 无本地 thinkingLevel state，MessageView 工具卡默认展�
 ask_user 仅普通工具会话启用，输入非空 questions 列表、返回 answers 列表且每项仅 questionIndex（从 1 开始）与 answer；source 仅用于界面回传校验；推荐编号静默兼容数字和字符串，选项原文优先避免二次归一化歧义；跳过返回按你推荐的来，停止不算跳过；这些兼容和界面行为不注入工具提示词；1 起始题号是写进 description 的数据契约；description/promptSnippet/options 描述含 Skip|custom|按你推荐的来 会挂测试
 ask_user 的 RPC 借标准 input 的 ask_user · 标题与 ask_user:questions:v1: placeholder 携带题目，不扩展 pi UI 协议；选项和跳过自动推进、答完自动提交（含单题），自定义草稿须点下一题或提交确认；TUI 保留逐题 select/input
 AskUserPanel 外边距跟随 ChatInput：左 16px，右桌面 52px、≤640px 为 16px，最大宽度跟随 --chat-content-max-width；ChatWindow 以请求 id 为 key 隔离每个问题的草稿与收起状态
+edit 工具匹配与写回内联在 pi-plugin/ssh.ts（planEdit：两级骨架，忽略零宽/BOM/CR 与空白，CRLF 与 tab 缩进差异不算失配，命中区间外字节不动）；%USERPROFILE%\.pi\agent\extensions 下每个 .ts 都会被当扩展入口加载，公用模块不能放该目录
