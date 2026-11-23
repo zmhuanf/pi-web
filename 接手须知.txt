@@ -5,6 +5,7 @@ pi-plugin/ 的 ts 由 pi 扩展运行时执行，不在本工程：tsconfig.json
 桥接高发文件：useAgentSession、AppShell、ChatWindow、MessageView、session-reader、sessions/[id]/state 路由、models-cache、powershell-settings、i18n 文案、pi-web-options、package.json
 合并上游：git fetch https://github.com/agegr/pi-web.git main:agegr-main，git merge --no-ff agegr-main，冲突处理 zmhuanf/ 全选本地、上游文件逐 hunk 保留桥接，收尾 node_modules/.bin/tsc --noEmit 再 git push origin main
 agegr-main 只 fetch 上游 main，不推不 checkout；origin/agegr-main 另存 2026-08 旧定制，勿 force 覆盖；rerere 已开
+本机 npm 会重写 package-lock 删掉 libc 字段，合并前见这种未提交 diff 经确认可直接 restore
 基线测试本就失败（useAgentSession 4 个 + MessageView 环境问题），不为修测试改实现或断言
 本机 NODE_ENV=production，裸 npm install 跳 devDependencies，只许 npm install --include=dev；依赖环境归人工，禁止私自 npm ci 或清 node_modules（Windows EPERM 会半删）
 无 DEFAULT_TOOL_PRESET（preferences.ts 已删），工具跟随 settings.json 的 defaultTools；本机只有 read/powershell/edit/write
